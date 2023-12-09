@@ -78,13 +78,13 @@ struct Task
     Worker *AssignedWorker;
 };
 
-struct StateStack  // State of the tasks that were interrupted
+struct StateStack // State of the tasks that were interrupted
 {
     stack<Task> State;
 } TaskState;
 
 vector<Task_Type> task_types = {
-    {3, "Lighting Installation", ELECTRICIAN, {0, 0, 1}},  //Brick Cement Tool
+    {3, "Lighting Installation", ELECTRICIAN, {0, 0, 1}}, // Brick Cement Tool
     {3, "Plumbing Installation", PLUMBER, {0, 0, 1}},
     {3, "Wiring for New Construction", ELECTRICIAN, {0, 0, 1}},
     {3, "Construction Project Management", ENGINEER, {0, 0, 0}},
@@ -120,7 +120,7 @@ void InitializeWorkers();
 void DynamicTaskAdjustment();
 void AssignTasks();
 int CheckWeather();
-void* TaskThread(void* task);
+void *TaskThread(void *task);
 
 int main()
 {
@@ -229,51 +229,59 @@ void AssignTasks()
             highPriorityQueue.pop();
             int skillset = task.skillset;
             bool foundWorker = false;
-            while (!foundWorker)
+            vector<Worker> tempQueue;
+            vector<Worker> tempQueue2;
+            while (!AvailableWorkers.empty())
             {
-                vector<Worker> tempQueue;
-                while (!AvailableWorkers.empty())
+                Worker worker = AvailableWorkers.front();
+                AvailableWorkers.pop();
+                bool hasSkill = false;
+                for (int i = 0; i < worker.skills.size(); i++)
                 {
-                    Worker worker = AvailableWorkers.front();
-                    AvailableWorkers.pop();
-                    bool hasSkill = false;
-                    for (int i = 0; i < worker.skills.size(); i++)
+                    if (worker.skills[i] == skillset)
                     {
-                        if (worker.skills[i] == skillset)
-                        {
-                            tempQueue.push_back(worker);
-                            hasSkill = true;
-                            break;
-                        }
-                    }
-                    if (hasSkill == false)
-                    {
-                        AvailableWorkers.push(worker);
+                        tempQueue.push_back(worker);
+                        hasSkill = true;
                     }
                 }
-                if (tempQueue.size() > 0)
+                if (hasSkill == false)
                 {
-                    sort(tempQueue.begin(), tempQueue.end(), [](const Worker &lhs, const Worker &rhs)
-                         { return lhs.SkillLevel < rhs.SkillLevel; });
-                    Worker worker = tempQueue[tempQueue.size() - 1];
-                    task.AssignedWorker = &worker;
-                    foundWorker = true;
-                    for (int i = 0; i < tempQueue.size() - 1; i++)
-                    {
-                        AvailableWorkers.push(tempQueue[i]);
-                    }
+                    tempQueue2.push_back(worker);
+                }
+            }
+            if (tempQueue2.size() > 0)
+            {
+                for (int i = 0; i < tempQueue2.size(); i++)
+                {
+                    AvailableWorkers.push(tempQueue2[i]);
+                }
+            }
+            if (tempQueue.size() > 0)
+            {
+                sort(tempQueue.begin(), tempQueue.end(), [](const Worker &lhs, const Worker &rhs)
+                     { return lhs.SkillLevel < rhs.SkillLevel; });
+                Worker worker = tempQueue[tempQueue.size() - 1];
+                task.AssignedWorker = &worker;
+                OccupiedWorkers.push_back(worker);
+                foundWorker = true;
+                for (int i = 0; i < tempQueue.size() - 1; i++)
+                {
+                    AvailableWorkers.push(tempQueue[i]);
                 }
             }
             if (foundWorker == true)
             {
                 IN_PROGRESS.push_back(task);
             }
-            else{
+            else
+            {
                 tempTasks.push_back(task);
             }
         }
-        if(tempTasks.size() > 0){
-            for(int i = 0; i < tempTasks.size(); i++){
+        if (tempTasks.size() > 0)
+        {
+            for (int i = 0; i < tempTasks.size(); i++)
+            {
                 highPriorityQueue.push(tempTasks[i]);
             }
         }
@@ -287,112 +295,129 @@ void AssignTasks()
             mediumPriorityQueue.pop();
             int skillset = task.skillset;
             bool foundWorker = false;
-            while (!foundWorker)
+            vector<Worker> tempQueue;
+            vector<Worker> tempQueue2;
+            while (!AvailableWorkers.empty())
             {
-                vector<Worker> tempQueue;
-                while (!AvailableWorkers.empty())
+                Worker worker = AvailableWorkers.front();
+                AvailableWorkers.pop();
+                bool hasSkill = false;
+                for (int i = 0; i < worker.skills.size(); i++)
                 {
-                    Worker worker = AvailableWorkers.front();
-                    AvailableWorkers.pop();
-                    bool hasSkill = false;
-                    for (int i = 0; i < worker.skills.size(); i++)
+                    if (worker.skills[i] == skillset)
                     {
-                        if (worker.skills[i] == skillset)
-                        {
-                            tempQueue.push_back(worker);
-                            hasSkill = true;
-                            break;
-                        }
-                    }
-                    if (hasSkill == false)
-                    {
-                        AvailableWorkers.push(worker);
+                        tempQueue.push_back(worker);
+                        hasSkill = true;
                     }
                 }
-                if (tempQueue.size() > 0)
+                if (hasSkill == false)
                 {
-                    sort(tempQueue.begin(), tempQueue.end(), [](const Worker &lhs, const Worker &rhs)
-                         { return lhs.SkillLevel < rhs.SkillLevel; });
-                    Worker worker = tempQueue[tempQueue.size() - 1];
-                    task.AssignedWorker = &worker;
-                    foundWorker = true;
-                    for (int i = 0; i < tempQueue.size() - 1; i++)
-                    {
-                        AvailableWorkers.push(tempQueue[i]);
-                    }
+                    tempQueue2.push_back(worker);
+                }
+            }
+            if (tempQueue2.size() > 0)
+            {
+                for (int i = 0; i < tempQueue2.size(); i++)
+                {
+                    AvailableWorkers.push(tempQueue2[i]);
+                }
+            }
+            if (tempQueue.size() > 0)
+            {
+                sort(tempQueue.begin(), tempQueue.end(), [](const Worker &lhs, const Worker &rhs)
+                     { return lhs.SkillLevel < rhs.SkillLevel; });
+                Worker worker = tempQueue[tempQueue.size() - 1];
+                task.AssignedWorker = &worker;
+                OccupiedWorkers.push_back(worker);
+                foundWorker = true;
+                for (int i = 0; i < tempQueue.size() - 1; i++)
+                {
+                    AvailableWorkers.push(tempQueue[i]);
                 }
             }
             if (foundWorker == true)
             {
                 IN_PROGRESS.push_back(task);
             }
-            else{
+            else
+            {
                 tempTasks.push_back(task);
             }
         }
-        if(tempTasks.size() > 0){
-            for(int i = 0; i < tempTasks.size(); i++){
+        if (tempTasks.size() > 0)
+        {
+            for (int i = 0; i < tempTasks.size(); i++)
+            {
                 mediumPriorityQueue.push(tempTasks[i]);
             }
         }
     }
     if (!lowPriorityQueue.empty())
     {
-        vector<Task> tempTasks;
+            vector<Task> tempTasks;
         while (!lowPriorityQueue.empty())
         {
             Task task = lowPriorityQueue.front();
             lowPriorityQueue.pop();
             int skillset = task.skillset;
             bool foundWorker = false;
-            while (!foundWorker)
+            vector<Worker> tempQueue;
+            vector<Worker> tempQueue2;
+            while (!AvailableWorkers.empty())
             {
-                vector<Worker> tempQueue;
-                while (!AvailableWorkers.empty())
+                Worker worker = AvailableWorkers.front();
+                AvailableWorkers.pop();
+                bool hasSkill = false;
+                for (int i = 0; i < worker.skills.size(); i++)
                 {
-                    Worker worker = AvailableWorkers.front();
-                    AvailableWorkers.pop();
-                    bool hasSkill = false;
-                    for (int i = 0; i < worker.skills.size(); i++)
+                    if (worker.skills[i] == skillset)
                     {
-                        if (worker.skills[i] == skillset)
-                        {
-                            tempQueue.push_back(worker);
-                            hasSkill = true;
-                            break;
-                        }
-                    }
-                    if (hasSkill == false)
-                    {
-                        AvailableWorkers.push(worker);
+                        tempQueue.push_back(worker);
+                        hasSkill = true;
                     }
                 }
-                if (tempQueue.size() > 0)
+                if (hasSkill == false)
                 {
-                    sort(tempQueue.begin(), tempQueue.end(), [](const Worker &lhs, const Worker &rhs)
-                         { return lhs.SkillLevel < rhs.SkillLevel; });
-                    Worker worker = tempQueue[tempQueue.size() - 1];
-                    task.AssignedWorker = &worker;
-                    foundWorker = true;
-                    for (int i = 0; i < tempQueue.size() - 1; i++)
-                    {
-                        AvailableWorkers.push(tempQueue[i]);
-                    }
+                    tempQueue2.push_back(worker);
+                }
+            }
+            if (tempQueue2.size() > 0)
+            {
+                for (int i = 0; i < tempQueue2.size(); i++)
+                {
+                    AvailableWorkers.push(tempQueue2[i]);
+                }
+            }
+            if (tempQueue.size() > 0)
+            {
+                sort(tempQueue.begin(), tempQueue.end(), [](const Worker &lhs, const Worker &rhs)
+                     { return lhs.SkillLevel < rhs.SkillLevel; });
+                Worker worker = tempQueue[tempQueue.size() - 1];
+                task.AssignedWorker = &worker;
+                OccupiedWorkers.push_back(worker);
+                foundWorker = true;
+                for (int i = 0; i < tempQueue.size() - 1; i++)
+                {
+                    AvailableWorkers.push(tempQueue[i]);
                 }
             }
             if (foundWorker == true)
             {
                 IN_PROGRESS.push_back(task);
             }
-            else{
+            else
+            {
                 tempTasks.push_back(task);
             }
         }
-        if(tempTasks.size() > 0){
-            for(int i = 0; i < tempTasks.size(); i++){
+        if (tempTasks.size() > 0)
+        {
+            for (int i = 0; i < tempTasks.size(); i++)
+            {
                 lowPriorityQueue.push(tempTasks[i]);
             }
         }
+    
     }
 }
 
@@ -432,57 +457,113 @@ int CheckWeather(int &rainCounter, int &disasterCounter)
     }
 }
 
-
-void* TaskThread(void* task){       //0 for success /1 for resource error /2 for Task change /10 for fork error /11 for pipe error
-    Task* taskPtr = (Task*) task;
+void *TaskThread(void *task)
+{ // 0 for success /1 for resource error /2 for Task change /10 for fork error /11 for pipe error
+    Task *taskPtr = (Task *)task;
     int pipes[2];
     if (pipe(pipes) == -1)
     {
-        pthread_exit((void*)11);
+        pthread_exit((void *)11);
     }
-    int pid=fork();
-    
+    int pid = fork();
+
     if (pid == -1)
     {
-        pthread_exit((void*)10);
+        pthread_exit((void *)10);
     }
     else if (pid == 0)
     {
-        // Child process
         // check if resources are available:
-        if (sem_trywait(&resources.Bricks) == -1)
+        bool resourceError = false;
+        if (taskPtr->RequiredResources[0] > 0)
         {
-            pthread_exit((void*)1);
+            if (sem_trywait(&resources.Bricks) == -1)
+            {
+                resourceError = true;
+            }
         }
-        if (sem_trywait(&resources.Cement) == -1)
+        if (taskPtr->RequiredResources[1] > 0)
         {
-            pthread_exit((void*)1);
+            if (sem_trywait(&resources.Cement) == -1)
+            {
+                resourceError = true;
+            }
         }
-        if (sem_trywait(&resources.Tools) == -1)
+        if (taskPtr->RequiredResources[2] > 0)
         {
-            pthread_exit((void*)1);
+            if (sem_trywait(&resources.Tools) == -1)
+            {
+                resourceError = true;
+            }
         }
-
         close(pipes[0]);
-        int time = rand() % 10 + 1;
-        sleep(time);
-        write(pipes[1], &time, sizeof(time));
-        close(pipes[1]);
-        exit(EXIT_SUCCESS);
+        write(pipes[1], &resourceError, sizeof(resourceError));
     }
     else
     {
         // Parent process
-        close(pipes[1]);
 
-        
-        pthread_mutex_lock(&dataMutex);
-        resource_utilization.Bricks += 5;
-        resource_utilization.Cement += 2;
-        resource_utilization.History_Bricks += 5;
-        resource_utilization.History_Cement += 2;
-        pthread_mutex_unlock(&dataMutex);
-        pthread_exit(0);
+        // if (taskPtr->priority == 3)
+        // {
+        //     for (int i = 0; i < highPriorityQueue.size(); i++)
+        //     {
+        //         if (highPriorityQueue)
+        //     }
+        // }
+        bool resourceError;
+        close(pipes[1]);
+        read(pipes[0], &resourceError, sizeof(resourceError));
+        if (resourceError == true)
+        {
+            pthread_mutex_lock(&dataMutex);
+            int index = -1;
+            for (int i = 0; i < IN_PROGRESS.size(); i++)
+            {
+                if (IN_PROGRESS[i].name == taskPtr->name)
+                {
+                    index = i;
+                    break;
+                }
+            }
+            AvailableWorkers.push(*taskPtr->AssignedWorker);
+            int index2 = -1;
+            for (int i = 0; i < OccupiedWorkers.size(); i++)
+            {
+                if (OccupiedWorkers[i].id == taskPtr->AssignedWorker->id)
+                {
+                    index2 = i;
+                    break;
+                }
+            }
+            OccupiedWorkers.erase(OccupiedWorkers.begin() + index2);
+            taskPtr->AssignedWorker = nullptr;
+            if (taskPtr->priority == 1)
+            {
+                highPriorityQueue.push(*taskPtr);
+            }
+            else if (taskPtr->priority == 2)
+            {
+                mediumPriorityQueue.push(*taskPtr);
+            }
+            else
+            {
+                lowPriorityQueue.push(*taskPtr);
+            }
+            // TaskState.State.push(*taskPtr);
+            IN_PROGRESS.erase(IN_PROGRESS.begin() + index);
+            pthread_mutex_unlock(&dataMutex);
+            pthread_exit((void *)1);
+        }
+        else
+        {
+            pthread_mutex_lock(&dataMutex);
+            resource_utilization.Bricks += 1;
+            resource_utilization.Cement += 1;
+            resource_utilization.History_Bricks += 1;
+            resource_utilization.History_Cement += 1;
+            pthread_mutex_unlock(&dataMutex);
+            pthread_exit(0);
+        }
     }
     pthread_exit(0);
 }
