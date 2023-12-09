@@ -11,11 +11,65 @@
 
 using namespace std;
 
+struct Worker
+{
+    int id;
+    vector<int> skills;
+    int SkillLevel;
+    bool onBreak; // Flag indicating if the worker is on break
+    int FatigueCounter;
+    bool shift; // Flag indicating if the worker has even shift or odd shift
+};
+
+struct Task
+{
+    string name;
+    int priority;
+    string TaskDescription;
+    int skillset;
+    vector<int> RequiredResources;
+    Worker *AssignedWorker;
+};
+
+struct MemoryManagement
+{
+    queue<Task> highPriorityQueue, mediumPriorityQueue, lowPriorityQueue, OnHoldQueue;
+    vector<Task> IN_PROGRESS;
+    vector<pthread_t> CurrentTasks;
+
+    vector<Task> CompletedTasksForToday;
+
+    // On break means cannot work the rest of the day
+    vector<Worker> OccupiedWorkers, OnBreakWorkers, NotONShiftWorkers;
+    queue<Worker> AvailableWorkers;
+
+    int currentWeather = SUNNY;
+
+} Memory;
+
+struct Day_Log
+{
+    vector<Task> CompletedTasks;
+    int Day;
+    int weather;
+    vector<Worker> WorkerOnShift;
+};
+
+struct Log
+{
+    vector<Day_Log> Day_Logs;
+
+    int Day = 1;
+    int rainCounter = 0;
+    int disasterCounter = 0;
+
+} Log;
+
 struct Resources
 {
     sem_t Bricks; // One Unit means 50 bricks
     sem_t Cement; // One Unit means 50 bags of cement
-    sem_t Tools;  // One Unit means 20 tools
+    sem_t Tools;  // One Unit means 5 tools
 
     Resources()
     {
@@ -31,6 +85,7 @@ struct Resource_Utilization
     int Cement = 0;
     int History_Bricks = 0;
     int History_Cement = 0;
+    int History_Tools = 0;
 } resource_utilization;
 
 enum weather
@@ -39,8 +94,6 @@ enum weather
     NATURAL_DISASTER,
     RAINY
 };
-
-int currentWeather = SUNNY;
 
 enum Skillset
 {
@@ -58,24 +111,6 @@ struct Task_Type
     string description;
     int skillset;
     vector<int> RequiredResources;
-};
-
-struct Worker
-{
-    int id;
-    vector<int> skills;
-    int SkillLevel;
-    bool onBreak; // Flag indicating if the worker is on break
-};
-
-struct Task
-{
-    string name;
-    int priority;
-    string TaskDescription;
-    int skillset;
-    vector<int> RequiredResources;
-    Worker *AssignedWorker;
 };
 
 struct StateStack // State of the tasks that were interrupted
@@ -106,13 +141,7 @@ pthread_mutex_t dataMutex = PTHREAD_MUTEX_INITIALIZER;
 
 pthread_mutex_t queueMutex = PTHREAD_MUTEX_INITIALIZER;
 
-queue<Task> highPriorityQueue, mediumPriorityQueue, lowPriorityQueue, OnHoldQueue;
-vector<Task> IN_PROGRESS;
-vector<pthread_t> CurrentTasks;
-
-// On break means cannot work the rest of the day
-vector<Worker> OccupiedWorkers, OnBreakWorkers;
-queue<Worker> AvailableWorkers;
+pthread_mutex_t resourceMutex = PTHREAD_MUTEX_INITIALIZER;
 
 void ResourceReplishment();
 void InitializeTasks();
@@ -120,27 +149,65 @@ void InitializeWorkers();
 void DynamicTaskAdjustment();
 void AssignTasks();
 int CheckWeather();
+void ChangeShifts();
 void *TaskThread(void *task);
 
 int main()
 {
-    int Day = 1;
-    int rainCounter = 0;
-    int disasterCounter = 0;
+
     InitializeWorkers();
 
     while (true)
     {
-        if (Day > MAX_DAY && highPriorityQueue.empty() && mediumPriorityQueue.empty() && lowPriorityQueue.empty())
+        if (Log.Day > MAX_DAY && Memory.highPriorityQueue.empty() && Memory.mediumPriorityQueue.empty() && Memory.lowPriorityQueue.empty())
         {
             break;
         }
-        currentWeather = CheckWeather(rainCounter, disasterCounter);
+        ChangeShifts();
+        Memory.currentWeather = CheckWeather();
         ResourceReplishment();
         InitializeTasks();
-        DynamicTaskAdjustment();
+
+        // DynamicTaskAdjustment();
         AssignTasks();
-        Day++;
+        usleep(100000);
+
+        // Check if all tasks are completed
+        void *status;
+        for (int i = 0; i < Memory.CurrentTasks.size(); i++)
+        {
+            pthread_join(Memory.CurrentTasks[i], &status);
+            if (status == 0)
+            {
+                Memory.CompletedTasksForToday.push_back(Memory.IN_PROGRESS[i]);
+                cout << "Task " << Memory.IN_PROGRESS[i].name << " has been completed" << endl;
+                cout << "Worker " << Memory.IN_PROGRESS[i].AssignedWorker->id << " is being put back in the queue" << endl;
+                Memory.AvailableWorkers.push(*Memory.IN_PROGRESS[i].AssignedWorker);
+                Memory.IN_PROGRESS[i].AssignedWorker = nullptr;
+            }
+            else if (*(int *)status == 1)
+            {
+                cout << "Task " << Memory.IN_PROGRESS[i].name << " is on hold due to lack of resources" << endl;
+            }
+            // else if (*(int*)status == 2)
+            // {
+
+            // }
+            // else if (*(int*)status == 10)
+            // {
+
+            // }
+            // else if (*(int*)status == 11)
+            // {
+
+            // }
+        }
+        Memory.IN_PROGRESS.clear();
+        Memory.CurrentTasks.clear();
+
+        // Fill log:
+
+        Log.Day++;
     }
 }
 
@@ -178,12 +245,48 @@ void InitializeTasks()
         task.AssignedWorker = nullptr;
         pthread_mutex_lock(&queueMutex);
         if (task.priority == 1)
-            highPriorityQueue.push(task);
+            Memory.highPriorityQueue.push(task);
         else if (task.priority == 2)
-            mediumPriorityQueue.push(task);
+            Memory.mediumPriorityQueue.push(task);
         else
-            lowPriorityQueue.push(task);
+            Memory.lowPriorityQueue.push(task);
         pthread_mutex_unlock(&queueMutex);
+    }
+}
+
+void ChangeShifts()
+{
+    bool shift;
+    if (Log.Day % 2 == 0)
+    {
+        shift = true;
+    }
+    else
+    {
+        shift = false;
+    }
+    vector<Worker> tempQueue;
+    for(int i=0;i<Memory.NotONShiftWorkers.size();i++)
+    {
+        tempQueue.push_back(Memory.NotONShiftWorkers[i]);
+    }
+    Memory.NotONShiftWorkers.clear();
+    while(!Memory.AvailableWorkers.empty())
+    {
+        tempQueue.push_back(Memory.AvailableWorkers.front());
+        Memory.AvailableWorkers.pop();
+    }
+
+    for (int i = 0; i < tempQueue.size(); i++)
+    {
+        if (tempQueue[i].shift == shift)
+        {
+            Memory.NotONShiftWorkers.push_back(tempQueue[i]);
+        }
+        else
+        {
+            Memory.AvailableWorkers.push(tempQueue[i]);
+        }
     }
 }
 
@@ -194,47 +297,51 @@ void InitializeWorkers()
     {
         Worker worker;
         worker.id = i;
-        worker.SkillLevel = rand() % 5 + 1;
+        worker.SkillLevel = rand() % 3 + 1;
         int numSkills = rand() % 3 + 1;
         for (int j = 0; j < numSkills; j++)
         {
             int skill = rand() % 6;
             worker.skills.push_back(skill);
         }
-        AvailableWorkers.push(worker);
+        worker.onBreak = false;
+        worker.FatigueCounter = 0;
+        worker.shift = i % 2 == 0 ? true : false;
+        Memory.AvailableWorkers.push(worker);
     }
 }
 
 void DynamicTaskAdjustment()
 {
-    if (currentWeather == RAINY)
+    // adjust based on weather, frequently used tasks, frequency used resources, tasks that frequently cause worker fatigue
+    if (Memory.currentWeather == RAINY)
     {
     }
-    else if (currentWeather == NATURAL_DISASTER)
+    else if (Memory.currentWeather == NATURAL_DISASTER)
     {
     }
-    else if (currentWeather == SUNNY)
+    else if (Memory.currentWeather == SUNNY)
     {
     }
 }
 
 void AssignTasks()
 {
-    if (!highPriorityQueue.empty())
+    if (!Memory.highPriorityQueue.empty())
     {
         vector<Task> tempTasks;
-        while (!highPriorityQueue.empty())
+        while (!Memory.highPriorityQueue.empty())
         {
-            Task task = highPriorityQueue.front();
-            highPriorityQueue.pop();
+            Task task = Memory.highPriorityQueue.front();
+            Memory.highPriorityQueue.pop();
             int skillset = task.skillset;
             bool foundWorker = false;
             vector<Worker> tempQueue;
             vector<Worker> tempQueue2;
-            while (!AvailableWorkers.empty())
+            while (!Memory.AvailableWorkers.empty())
             {
-                Worker worker = AvailableWorkers.front();
-                AvailableWorkers.pop();
+                Worker worker = Memory.AvailableWorkers.front();
+                Memory.AvailableWorkers.pop();
                 bool hasSkill = false;
                 for (int i = 0; i < worker.skills.size(); i++)
                 {
@@ -253,7 +360,7 @@ void AssignTasks()
             {
                 for (int i = 0; i < tempQueue2.size(); i++)
                 {
-                    AvailableWorkers.push(tempQueue2[i]);
+                    Memory.AvailableWorkers.push(tempQueue2[i]);
                 }
             }
             if (tempQueue.size() > 0)
@@ -262,16 +369,20 @@ void AssignTasks()
                      { return lhs.SkillLevel < rhs.SkillLevel; });
                 Worker worker = tempQueue[tempQueue.size() - 1];
                 task.AssignedWorker = &worker;
-                OccupiedWorkers.push_back(worker);
+                Memory.OccupiedWorkers.push_back(worker);
                 foundWorker = true;
                 for (int i = 0; i < tempQueue.size() - 1; i++)
                 {
-                    AvailableWorkers.push(tempQueue[i]);
+                    Memory.AvailableWorkers.push(tempQueue[i]);
                 }
             }
             if (foundWorker == true)
             {
-                IN_PROGRESS.push_back(task);
+                Memory.IN_PROGRESS.push_back(task);
+                pthread_t thread;
+                Memory.CurrentTasks.push_back(thread);
+                pthread_create(&Memory.CurrentTasks[Memory.CurrentTasks.size() - 1], NULL, TaskThread, (void *)&task);
+                usleep(100000);
             }
             else
             {
@@ -282,25 +393,25 @@ void AssignTasks()
         {
             for (int i = 0; i < tempTasks.size(); i++)
             {
-                highPriorityQueue.push(tempTasks[i]);
+                Memory.highPriorityQueue.push(tempTasks[i]);
             }
         }
     }
-    if (!mediumPriorityQueue.empty())
+    if (!Memory.mediumPriorityQueue.empty())
     {
         vector<Task> tempTasks;
-        while (!mediumPriorityQueue.empty())
+        while (!Memory.mediumPriorityQueue.empty())
         {
-            Task task = mediumPriorityQueue.front();
-            mediumPriorityQueue.pop();
+            Task task = Memory.mediumPriorityQueue.front();
+            Memory.mediumPriorityQueue.pop();
             int skillset = task.skillset;
             bool foundWorker = false;
             vector<Worker> tempQueue;
             vector<Worker> tempQueue2;
-            while (!AvailableWorkers.empty())
+            while (!Memory.AvailableWorkers.empty())
             {
-                Worker worker = AvailableWorkers.front();
-                AvailableWorkers.pop();
+                Worker worker = Memory.AvailableWorkers.front();
+                Memory.AvailableWorkers.pop();
                 bool hasSkill = false;
                 for (int i = 0; i < worker.skills.size(); i++)
                 {
@@ -319,7 +430,7 @@ void AssignTasks()
             {
                 for (int i = 0; i < tempQueue2.size(); i++)
                 {
-                    AvailableWorkers.push(tempQueue2[i]);
+                    Memory.AvailableWorkers.push(tempQueue2[i]);
                 }
             }
             if (tempQueue.size() > 0)
@@ -328,16 +439,19 @@ void AssignTasks()
                      { return lhs.SkillLevel < rhs.SkillLevel; });
                 Worker worker = tempQueue[tempQueue.size() - 1];
                 task.AssignedWorker = &worker;
-                OccupiedWorkers.push_back(worker);
+                Memory.OccupiedWorkers.push_back(worker);
                 foundWorker = true;
                 for (int i = 0; i < tempQueue.size() - 1; i++)
                 {
-                    AvailableWorkers.push(tempQueue[i]);
+                    Memory.AvailableWorkers.push(tempQueue[i]);
                 }
             }
             if (foundWorker == true)
             {
-                IN_PROGRESS.push_back(task);
+                Memory.IN_PROGRESS.push_back(task);
+                pthread_t thread;
+                Memory.CurrentTasks.push_back(thread);
+                pthread_create(&Memory.CurrentTasks[Memory.CurrentTasks.size() - 1], NULL, TaskThread, (void *)&task);
             }
             else
             {
@@ -348,25 +462,25 @@ void AssignTasks()
         {
             for (int i = 0; i < tempTasks.size(); i++)
             {
-                mediumPriorityQueue.push(tempTasks[i]);
+                Memory.mediumPriorityQueue.push(tempTasks[i]);
             }
         }
     }
-    if (!lowPriorityQueue.empty())
+    if (!Memory.lowPriorityQueue.empty())
     {
-            vector<Task> tempTasks;
-        while (!lowPriorityQueue.empty())
+        vector<Task> tempTasks;
+        while (!Memory.lowPriorityQueue.empty())
         {
-            Task task = lowPriorityQueue.front();
-            lowPriorityQueue.pop();
+            Task task = Memory.lowPriorityQueue.front();
+            Memory.lowPriorityQueue.pop();
             int skillset = task.skillset;
             bool foundWorker = false;
             vector<Worker> tempQueue;
             vector<Worker> tempQueue2;
-            while (!AvailableWorkers.empty())
+            while (!Memory.AvailableWorkers.empty())
             {
-                Worker worker = AvailableWorkers.front();
-                AvailableWorkers.pop();
+                Worker worker = Memory.AvailableWorkers.front();
+                Memory.AvailableWorkers.pop();
                 bool hasSkill = false;
                 for (int i = 0; i < worker.skills.size(); i++)
                 {
@@ -385,7 +499,7 @@ void AssignTasks()
             {
                 for (int i = 0; i < tempQueue2.size(); i++)
                 {
-                    AvailableWorkers.push(tempQueue2[i]);
+                    Memory.AvailableWorkers.push(tempQueue2[i]);
                 }
             }
             if (tempQueue.size() > 0)
@@ -394,16 +508,19 @@ void AssignTasks()
                      { return lhs.SkillLevel < rhs.SkillLevel; });
                 Worker worker = tempQueue[tempQueue.size() - 1];
                 task.AssignedWorker = &worker;
-                OccupiedWorkers.push_back(worker);
+                Memory.OccupiedWorkers.push_back(worker);
                 foundWorker = true;
                 for (int i = 0; i < tempQueue.size() - 1; i++)
                 {
-                    AvailableWorkers.push(tempQueue[i]);
+                    Memory.AvailableWorkers.push(tempQueue[i]);
                 }
             }
             if (foundWorker == true)
             {
-                IN_PROGRESS.push_back(task);
+                Memory.IN_PROGRESS.push_back(task);
+                pthread_t thread;
+                Memory.CurrentTasks.push_back(thread);
+                pthread_create(&Memory.CurrentTasks[Memory.CurrentTasks.size() - 1], NULL, TaskThread, (void *)&task);
             }
             else
             {
@@ -414,30 +531,29 @@ void AssignTasks()
         {
             for (int i = 0; i < tempTasks.size(); i++)
             {
-                lowPriorityQueue.push(tempTasks[i]);
+                Memory.lowPriorityQueue.push(tempTasks[i]);
             }
         }
-    
     }
 }
 
-int CheckWeather(int &rainCounter, int &disasterCounter)
+int CheckWeather()
 {
-    if (rainCounter > 3 && disasterCounter > 1)
+    if (Log.rainCounter > 3 && Log.disasterCounter > 1)
     {
         return SUNNY;
     }
-    else if (rainCounter > 3 && disasterCounter < 1)
+    else if (Log.rainCounter > 3 && Log.disasterCounter < 1)
     {
         return NATURAL_DISASTER;
-        disasterCounter++;
+        Log.disasterCounter++;
     }
-    else if (rainCounter < 3 && disasterCounter > 1)
+    else if (Log.rainCounter < 3 && Log.disasterCounter > 1)
     {
         return RAINY;
-        rainCounter++;
+        Log.rainCounter++;
     }
-    else if (rainCounter < 3 && disasterCounter < 1)
+    else if (Log.rainCounter < 3 && Log.disasterCounter < 1)
     {
         int weather = rand() % 3;
         if (weather == 0)
@@ -447,12 +563,12 @@ int CheckWeather(int &rainCounter, int &disasterCounter)
         else if (weather == 1)
         {
             return RAINY;
-            rainCounter++;
+            Log.rainCounter++;
         }
         else if (weather == 2)
         {
             return NATURAL_DISASTER;
-            disasterCounter++;
+            Log.disasterCounter++;
         }
     }
 }
@@ -474,93 +590,180 @@ void *TaskThread(void *task)
     else if (pid == 0)
     {
         // check if resources are available:
+        pthread_mutex_lock(&resourceMutex);
         bool resourceError = false;
+        bool check = false;
+        bool check2 = false;
         if (taskPtr->RequiredResources[0] > 0)
         {
-            if (sem_trywait(&resources.Bricks) == -1)
+            check = true;
+            int count = taskPtr->AssignedWorker->SkillLevel > 2 ? 1 : (taskPtr->AssignedWorker->SkillLevel > 1 ? 2 : 3);
+            int i;
+            for (i = 0; i < count; i++)
             {
-                resourceError = true;
+                if (sem_trywait(&resources.Bricks) == -1)
+                {
+                    resourceError = true;
+                    break;
+                }
+            }
+            if (resourceError == true)
+            {
+                for (int j = 0; j < i; j++)
+                {
+                    sem_post(&resources.Bricks);
+                }
             }
         }
-        if (taskPtr->RequiredResources[1] > 0)
+        if (taskPtr->RequiredResources[1] > 0 && resourceError == false)
         {
-            if (sem_trywait(&resources.Cement) == -1)
+            check2 = true;
+            int count = taskPtr->AssignedWorker->SkillLevel > 2 ? 1 : (taskPtr->AssignedWorker->SkillLevel > 1 ? 2 : 3);
+            int i;
+            for (i = 0; i < count; i++)
             {
-                resourceError = true;
+                if (sem_trywait(&resources.Cement) == -1)
+                {
+                    resourceError = true;
+                    break;
+                }
+            }
+            if (resourceError == true)
+            {
+                for (int j = 0; j < i; j++)
+                {
+                    sem_post(&resources.Cement);
+                }
+                if (check == true)
+                {
+                    for (int i = 0; i < count; i++)
+                    {
+                        sem_post(&resources.Bricks);
+                    }
+                    check = false;
+                }
             }
         }
-        if (taskPtr->RequiredResources[2] > 0)
+        if (taskPtr->RequiredResources[2] > 0 && resourceError == false)
         {
-            if (sem_trywait(&resources.Tools) == -1)
+            int count = taskPtr->AssignedWorker->SkillLevel > 2 ? 1 : (taskPtr->AssignedWorker->SkillLevel > 1 ? 2 : 3);
+            int i;
+            for (i = 0; i < count; i++)
             {
-                resourceError = true;
+                if (sem_trywait(&resources.Tools) == -1)
+                {
+                    resourceError = true;
+                    break;
+                }
+            }
+            if (resourceError == true)
+            {
+                for (int j = 0; j < i; j++)
+                {
+                    sem_post(&resources.Tools);
+                }
+                if (check == true)
+                {
+                    for (int i = 0; i < count; i++)
+                    {
+                        sem_post(&resources.Bricks);
+                    }
+                    check = false;
+                }
+                if (check2 == true)
+                {
+                    for (int i = 0; i < count; i++)
+                    {
+                        sem_post(&resources.Cement);
+                    }
+                    check2 = false;
+                }
             }
         }
         close(pipes[0]);
+        pthread_mutex_unlock(&resourceMutex);
         write(pipes[1], &resourceError, sizeof(resourceError));
     }
     else
     {
         // Parent process
-
-        // if (taskPtr->priority == 3)
-        // {
-        //     for (int i = 0; i < highPriorityQueue.size(); i++)
-        //     {
-        //         if (highPriorityQueue)
-        //     }
-        // }
         bool resourceError;
         close(pipes[1]);
         read(pipes[0], &resourceError, sizeof(resourceError));
         if (resourceError == true)
         {
+            cout << "Task " << taskPtr->name << " is on hold due to lack of resources" << endl;
+            cout << "Task " << taskPtr->name << " is being put on hold" << endl;
+            cout << "Task " << taskPtr->name << " is being put back in the queue" << endl;
+            cout << "Worker " << taskPtr->AssignedWorker->id << " is being put back in the queue" << endl;
             pthread_mutex_lock(&dataMutex);
             int index = -1;
-            for (int i = 0; i < IN_PROGRESS.size(); i++)
+            for (int i = 0; i < Memory.IN_PROGRESS.size(); i++)
             {
-                if (IN_PROGRESS[i].name == taskPtr->name)
+                if (Memory.IN_PROGRESS[i].name == taskPtr->name)
                 {
                     index = i;
                     break;
                 }
             }
-            AvailableWorkers.push(*taskPtr->AssignedWorker);
+            Memory.AvailableWorkers.push(*taskPtr->AssignedWorker);
             int index2 = -1;
-            for (int i = 0; i < OccupiedWorkers.size(); i++)
+            for (int i = 0; i < Memory.OccupiedWorkers.size(); i++)
             {
-                if (OccupiedWorkers[i].id == taskPtr->AssignedWorker->id)
+                if (Memory.OccupiedWorkers[i].id == taskPtr->AssignedWorker->id)
                 {
                     index2 = i;
                     break;
                 }
             }
-            OccupiedWorkers.erase(OccupiedWorkers.begin() + index2);
+            Memory.OccupiedWorkers.erase(Memory.OccupiedWorkers.begin() + index2);
             taskPtr->AssignedWorker = nullptr;
             if (taskPtr->priority == 1)
             {
-                highPriorityQueue.push(*taskPtr);
+                Memory.highPriorityQueue.push(*taskPtr);
             }
             else if (taskPtr->priority == 2)
             {
-                mediumPriorityQueue.push(*taskPtr);
+                Memory.mediumPriorityQueue.push(*taskPtr);
             }
             else
             {
-                lowPriorityQueue.push(*taskPtr);
+                Memory.lowPriorityQueue.push(*taskPtr);
             }
             // TaskState.State.push(*taskPtr);
-            IN_PROGRESS.erase(IN_PROGRESS.begin() + index);
+            Memory.IN_PROGRESS.erase(Memory.IN_PROGRESS.begin() + index);
             pthread_mutex_unlock(&dataMutex);
             pthread_exit((void *)1);
         }
         else
         {
             pthread_mutex_lock(&dataMutex);
-            resource_utilization.Bricks += 1;
-            resource_utilization.Cement += 1;
-            resource_utilization.History_Bricks += 1;
-            resource_utilization.History_Cement += 1;
+            int count = taskPtr->AssignedWorker->SkillLevel > 2 ? 1 : (taskPtr->AssignedWorker->SkillLevel > 1 ? 2 : 3);
+            cout << "Task " << taskPtr->name << " is being worked on by Worker " << taskPtr->AssignedWorker->id << endl;
+            if (taskPtr->RequiredResources[0])
+            {
+                resource_utilization.Bricks += count;
+                resource_utilization.History_Bricks += count;
+                cout << "Total Bricks Used By This Task: " << count * 50 << endl;
+            }
+            if (taskPtr->RequiredResources[1])
+            {
+                resource_utilization.Cement += count;
+                resource_utilization.History_Cement += count;
+                cout << "Total Bags of Cement Used By This Task: " << count * 50 << endl;
+            }
+            if (taskPtr->RequiredResources[2])
+            {
+                resource_utilization.History_Tools += count;
+                cout << "Total Tools Used By This Task: " << count * 5 << endl;
+                for (int i = 0; i < count; i++)
+                {
+                    sem_post(&resources.Tools);
+                }
+                cout << "Task Has been Completed" << endl;
+                cout << "Tools are now available" << endl;
+            }
+            usleep(100000);
             pthread_mutex_unlock(&dataMutex);
             pthread_exit(0);
         }
