@@ -3,6 +3,11 @@
 #include <semaphore.h>
 #include <queue>
 #include <unistd.h>
+#include <vector>
+#include <algorithm>
+#include <stack>
+
+#define MAX_DAY 30
 
 using namespace std;
 
@@ -22,10 +27,10 @@ struct Resources
 
 struct Resource_Utilization
 {
-    int Bricks=0;
-    int Cement=0;
-    int History_Bricks=0;
-    int History_Cement=0;
+    int Bricks = 0;
+    int Cement = 0;
+    int History_Bricks = 0;
+    int History_Cement = 0;
 } resource_utilization;
 
 enum weather
@@ -34,6 +39,8 @@ enum weather
     NATURAL_DISASTER,
     RAINY
 };
+
+int currentWeather = SUNNY;
 
 enum Skillset
 {
@@ -50,31 +57,8 @@ struct Task_Type
     int priority; // 1 = high, 2 = medium, 3 = low
     string description;
     int skillset;
+    vector<int> RequiredResources;
 };
-
-vector<Task_Type> task_types = {
-    {3, "Lighting Installation", ELECTRICIAN},
-    {3, "Wiring for New Construction", ELECTRICIAN},
-    {3, "Stone Wall Construction", MASON},
-    {3, "Construction Project Management", ENGINEER},
-    {3, "Project Planning and Design", ENGINEER},
-
-    {2, "Cement Mixing", LABORER},
-    {2, "Brick Laying", MASON},
-    {2, "Sewer Line Installation", PLUMBER},
-    {2, "Gas Line Installation", PLUMBER},
-    {2, "Paving Pathways", MASON},
-
-    {1, "Pipe Installation and Repair", PLUMBER},
-    {1, "Door and Window Installation", CARPENTER},
-    {1, "Staircase Design and Installation", CARPENTER},
-    {1, "Troubleshooting Electrical Issues", ELECTRICIAN},
-    {1, "Concrete Repair", MASON}
-};
-
-pthread_mutex_t dataMutex = PTHREAD_MUTEX_INITIALIZER;
-
-pthread_mutex_t queueMutex = PTHREAD_MUTEX_INITIALIZER;
 
 struct Worker
 {
@@ -89,54 +73,416 @@ struct Task
     string name;
     int priority;
     string TaskDescription;
+    int skillset;
+    vector<int> RequiredResources;
     Worker *AssignedWorker;
 };
 
+struct StateStack  // State of the tasks that were interrupted
+{
+    stack<Task> State;
+} TaskState;
+
+vector<Task_Type> task_types = {
+    {3, "Lighting Installation", ELECTRICIAN, {0, 0, 1}},  //Brick Cement Tool
+    {3, "Plumbing Installation", PLUMBER, {0, 0, 1}},
+    {3, "Wiring for New Construction", ELECTRICIAN, {0, 0, 1}},
+    {3, "Construction Project Management", ENGINEER, {0, 0, 0}},
+    {3, "Project Planning and Design", ENGINEER, {0, 0, 0}},
+
+    {2, "Cement Mixing", LABORER, {0, 1, 0}},
+    {2, "Brick Laying", MASON, {1, 1, 0}},
+    {2, "Stone Wall Construction", MASON, {1, 1, 0}},
+    {2, "Gas Line Installation", PLUMBER, {0, 0, 1}},
+    {2, "Door and Window Installation", CARPENTER, {0, 1, 0}},
+
+    {1, "Pipe Installation and Repair", PLUMBER, {0, 1, 1}},
+    {1, "Pillar Construction", MASON, {1, 1, 0}},
+    {1, "Staircase Installation", CARPENTER, {1, 1, 0}},
+    {1, "Troubleshooting Electrical Issues", ELECTRICIAN, {0, 0, 1}},
+    {1, "Concrete Repair", MASON, {0, 1, 0}}};
+
+pthread_mutex_t dataMutex = PTHREAD_MUTEX_INITIALIZER;
+
+pthread_mutex_t queueMutex = PTHREAD_MUTEX_INITIALIZER;
+
 queue<Task> highPriorityQueue, mediumPriorityQueue, lowPriorityQueue, OnHoldQueue;
+vector<Task> IN_PROGRESS;
+vector<pthread_t> CurrentTasks;
 
 // On break means cannot work the rest of the day
 vector<Worker> OccupiedWorkers, OnBreakWorkers;
 queue<Worker> AvailableWorkers;
 
+void ResourceReplishment();
+void InitializeTasks();
+void InitializeWorkers();
+void DynamicTaskAdjustment();
+void AssignTasks();
+int CheckWeather();
+void* TaskThread(void* task);
+
 int main()
 {
-    int numWorkers=rand()%21+10;
+    int Day = 1;
+    int rainCounter = 0;
+    int disasterCounter = 0;
+    InitializeWorkers();
 
-    // Initialize workers
+    while (true)
+    {
+        if (Day > MAX_DAY && highPriorityQueue.empty() && mediumPriorityQueue.empty() && lowPriorityQueue.empty())
+        {
+            break;
+        }
+        currentWeather = CheckWeather(rainCounter, disasterCounter);
+        ResourceReplishment();
+        InitializeTasks();
+        DynamicTaskAdjustment();
+        AssignTasks();
+        Day++;
+    }
+}
+
+void ResourceReplishment()
+{
+    if (resource_utilization.Bricks > 0)
+    {
+        for (int i = 0; i < resource_utilization.Bricks; i++)
+        {
+            sem_post(&resources.Bricks);
+        }
+    }
+    if (resource_utilization.Cement > 0)
+    {
+        for (int i = 0; i < resource_utilization.Cement; i++)
+        {
+            sem_post(&resources.Cement);
+        }
+    }
+}
+
+void InitializeTasks()
+{
+    int numTasks = rand() % 11 + 5;
+
+    for (int i = 0; i < numTasks; i++)
+    {
+        int TaskTypeIndex = rand() % task_types.size();
+        Task task;
+        task.name = "Task " + to_string(i);
+        task.priority = task_types[TaskTypeIndex].priority;
+        task.TaskDescription = task_types[TaskTypeIndex].description;
+        task.skillset = task_types[TaskTypeIndex].skillset;
+        task.RequiredResources = task_types[TaskTypeIndex].RequiredResources;
+        task.AssignedWorker = nullptr;
+        pthread_mutex_lock(&queueMutex);
+        if (task.priority == 1)
+            highPriorityQueue.push(task);
+        else if (task.priority == 2)
+            mediumPriorityQueue.push(task);
+        else
+            lowPriorityQueue.push(task);
+        pthread_mutex_unlock(&queueMutex);
+    }
+}
+
+void InitializeWorkers()
+{
+    int numWorkers = rand() % 11 + 5;
     for (int i = 0; i < numWorkers; i++)
     {
-        Worker newWorker;
-        newWorker.id = i;
-        for (int i = 0; i < rand() % 4 + 1; i++)
+        Worker worker;
+        worker.id = i;
+        worker.SkillLevel = rand() % 5 + 1;
+        int numSkills = rand() % 3 + 1;
+        for (int j = 0; j < numSkills; j++)
         {
-            newWorker.skills.push_back(rand() % 6);
+            int skill = rand() % 6;
+            worker.skills.push_back(skill);
         }
-        newWorker.SkillLevel = rand() % 3 + 1;
-        newWorker.onBreak = false;
-        AvailableWorkers.push(newWorker);
+        AvailableWorkers.push(worker);
     }
+}
 
-    // Initialize tasks
+void DynamicTaskAdjustment()
+{
+    if (currentWeather == RAINY)
+    {
+    }
+    else if (currentWeather == NATURAL_DISASTER)
+    {
+    }
+    else if (currentWeather == SUNNY)
+    {
+    }
+}
+
+void AssignTasks()
+{
+    if (!highPriorityQueue.empty())
+    {
+        vector<Task> tempTasks;
+        while (!highPriorityQueue.empty())
+        {
+            Task task = highPriorityQueue.front();
+            highPriorityQueue.pop();
+            int skillset = task.skillset;
+            bool foundWorker = false;
+            while (!foundWorker)
+            {
+                vector<Worker> tempQueue;
+                while (!AvailableWorkers.empty())
+                {
+                    Worker worker = AvailableWorkers.front();
+                    AvailableWorkers.pop();
+                    bool hasSkill = false;
+                    for (int i = 0; i < worker.skills.size(); i++)
+                    {
+                        if (worker.skills[i] == skillset)
+                        {
+                            tempQueue.push_back(worker);
+                            hasSkill = true;
+                            break;
+                        }
+                    }
+                    if (hasSkill == false)
+                    {
+                        AvailableWorkers.push(worker);
+                    }
+                }
+                if (tempQueue.size() > 0)
+                {
+                    sort(tempQueue.begin(), tempQueue.end(), [](const Worker &lhs, const Worker &rhs)
+                         { return lhs.SkillLevel < rhs.SkillLevel; });
+                    Worker worker = tempQueue[tempQueue.size() - 1];
+                    task.AssignedWorker = &worker;
+                    foundWorker = true;
+                    for (int i = 0; i < tempQueue.size() - 1; i++)
+                    {
+                        AvailableWorkers.push(tempQueue[i]);
+                    }
+                }
+            }
+            if (foundWorker == true)
+            {
+                IN_PROGRESS.push_back(task);
+            }
+            else{
+                tempTasks.push_back(task);
+            }
+        }
+        if(tempTasks.size() > 0){
+            for(int i = 0; i < tempTasks.size(); i++){
+                highPriorityQueue.push(tempTasks[i]);
+            }
+        }
+    }
+    if (!mediumPriorityQueue.empty())
+    {
+        vector<Task> tempTasks;
+        while (!mediumPriorityQueue.empty())
+        {
+            Task task = mediumPriorityQueue.front();
+            mediumPriorityQueue.pop();
+            int skillset = task.skillset;
+            bool foundWorker = false;
+            while (!foundWorker)
+            {
+                vector<Worker> tempQueue;
+                while (!AvailableWorkers.empty())
+                {
+                    Worker worker = AvailableWorkers.front();
+                    AvailableWorkers.pop();
+                    bool hasSkill = false;
+                    for (int i = 0; i < worker.skills.size(); i++)
+                    {
+                        if (worker.skills[i] == skillset)
+                        {
+                            tempQueue.push_back(worker);
+                            hasSkill = true;
+                            break;
+                        }
+                    }
+                    if (hasSkill == false)
+                    {
+                        AvailableWorkers.push(worker);
+                    }
+                }
+                if (tempQueue.size() > 0)
+                {
+                    sort(tempQueue.begin(), tempQueue.end(), [](const Worker &lhs, const Worker &rhs)
+                         { return lhs.SkillLevel < rhs.SkillLevel; });
+                    Worker worker = tempQueue[tempQueue.size() - 1];
+                    task.AssignedWorker = &worker;
+                    foundWorker = true;
+                    for (int i = 0; i < tempQueue.size() - 1; i++)
+                    {
+                        AvailableWorkers.push(tempQueue[i]);
+                    }
+                }
+            }
+            if (foundWorker == true)
+            {
+                IN_PROGRESS.push_back(task);
+            }
+            else{
+                tempTasks.push_back(task);
+            }
+        }
+        if(tempTasks.size() > 0){
+            for(int i = 0; i < tempTasks.size(); i++){
+                mediumPriorityQueue.push(tempTasks[i]);
+            }
+        }
+    }
+    if (!lowPriorityQueue.empty())
+    {
+        vector<Task> tempTasks;
+        while (!lowPriorityQueue.empty())
+        {
+            Task task = lowPriorityQueue.front();
+            lowPriorityQueue.pop();
+            int skillset = task.skillset;
+            bool foundWorker = false;
+            while (!foundWorker)
+            {
+                vector<Worker> tempQueue;
+                while (!AvailableWorkers.empty())
+                {
+                    Worker worker = AvailableWorkers.front();
+                    AvailableWorkers.pop();
+                    bool hasSkill = false;
+                    for (int i = 0; i < worker.skills.size(); i++)
+                    {
+                        if (worker.skills[i] == skillset)
+                        {
+                            tempQueue.push_back(worker);
+                            hasSkill = true;
+                            break;
+                        }
+                    }
+                    if (hasSkill == false)
+                    {
+                        AvailableWorkers.push(worker);
+                    }
+                }
+                if (tempQueue.size() > 0)
+                {
+                    sort(tempQueue.begin(), tempQueue.end(), [](const Worker &lhs, const Worker &rhs)
+                         { return lhs.SkillLevel < rhs.SkillLevel; });
+                    Worker worker = tempQueue[tempQueue.size() - 1];
+                    task.AssignedWorker = &worker;
+                    foundWorker = true;
+                    for (int i = 0; i < tempQueue.size() - 1; i++)
+                    {
+                        AvailableWorkers.push(tempQueue[i]);
+                    }
+                }
+            }
+            if (foundWorker == true)
+            {
+                IN_PROGRESS.push_back(task);
+            }
+            else{
+                tempTasks.push_back(task);
+            }
+        }
+        if(tempTasks.size() > 0){
+            for(int i = 0; i < tempTasks.size(); i++){
+                lowPriorityQueue.push(tempTasks[i]);
+            }
+        }
+    }
+}
+
+int CheckWeather(int &rainCounter, int &disasterCounter)
+{
+    if (rainCounter > 3 && disasterCounter > 1)
+    {
+        return SUNNY;
+    }
+    else if (rainCounter > 3 && disasterCounter < 1)
+    {
+        return NATURAL_DISASTER;
+        disasterCounter++;
+    }
+    else if (rainCounter < 3 && disasterCounter > 1)
+    {
+        return RAINY;
+        rainCounter++;
+    }
+    else if (rainCounter < 3 && disasterCounter < 1)
+    {
+        int weather = rand() % 3;
+        if (weather == 0)
+        {
+            return SUNNY;
+        }
+        else if (weather == 1)
+        {
+            return RAINY;
+            rainCounter++;
+        }
+        else if (weather == 2)
+        {
+            return NATURAL_DISASTER;
+            disasterCounter++;
+        }
+    }
+}
+
+
+void* TaskThread(void* task){       //0 for success /1 for resource error /2 for Task change /10 for fork error /11 for pipe error
+    Task* taskPtr = (Task*) task;
+    int pipes[2];
+    if (pipe(pipes) == -1)
+    {
+        pthread_exit((void*)11);
+    }
+    int pid=fork();
     
-    while(true){
-        
+    if (pid == -1)
+    {
+        pthread_exit((void*)10);
     }
+    else if (pid == 0)
+    {
+        // Child process
+        // check if resources are available:
+        if (sem_trywait(&resources.Bricks) == -1)
+        {
+            pthread_exit((void*)1);
+        }
+        if (sem_trywait(&resources.Cement) == -1)
+        {
+            pthread_exit((void*)1);
+        }
+        if (sem_trywait(&resources.Tools) == -1)
+        {
+            pthread_exit((void*)1);
+        }
 
-    // int numTasks = rand() % 10 + 1;
-    // for (int i = 0; i < numTasks; i++)
-    // {
-    //     Task task;
-    //     task.name = "Task " + to_string(i);
-    //     task.priority = rand() % 3 + 1;
-    //     //task.TaskDescription = tasks[task.priority - 1][rand() % 3];
-    //     task.AssignedWorker = nullptr;
-    //     pthread_mutex_lock(&queueMutex);
-    //     if (task.priority == 1)
-    //         highPriorityQueue.push(task);
-    //     else if (task.priority == 2)
-    //         mediumPriorityQueue.push(task);
-    //     else
-    //         lowPriorityQueue.push(task);
-    //     pthread_mutex_unlock(&queueMutex);
-    // }
+        close(pipes[0]);
+        int time = rand() % 10 + 1;
+        sleep(time);
+        write(pipes[1], &time, sizeof(time));
+        close(pipes[1]);
+        exit(EXIT_SUCCESS);
+    }
+    else
+    {
+        // Parent process
+        close(pipes[1]);
+
+        
+        pthread_mutex_lock(&dataMutex);
+        resource_utilization.Bricks += 5;
+        resource_utilization.Cement += 2;
+        resource_utilization.History_Bricks += 5;
+        resource_utilization.History_Cement += 2;
+        pthread_mutex_unlock(&dataMutex);
+        pthread_exit(0);
+    }
+    pthread_exit(0);
 }
