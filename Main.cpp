@@ -10,7 +10,7 @@
 #include <sys/wait.h>
 #include <time.h>
 
-#define MAX_DAY 5 // Have to change this
+#define MAX_DAY 2 // Have to change this
 
 using namespace std;
 
@@ -239,17 +239,23 @@ struct Log
 
 struct Resources
 {
-    sem_t Bricks; // One Unit means 50 bricks
-    sem_t Cement; // One Unit means 50 bags of cement
-    sem_t Tools;  // One Unit means 5 tools
+    int Bricks; // One Unit means 50 bricks
+    int Cement; // One Unit means 50 bags of cement
+    int Tools;  // One Unit means 5 tools
 
-    Resources()
+    void initialize()
     {
-        sem_init(&Bricks, 0, 20);
-        sem_init(&Cement, 0, 8);
-        sem_init(&Tools, 0, 5);
+        Bricks = 3;
+        Cement = 3;
+        Tools = 3;
     }
-} resources;
+};
+
+sem_t Bricks; // One Unit means 50 bricks
+sem_t Cement; // One Unit means 50 bags of cement
+sem_t Tools;
+
+Resources resources;
 
 struct Resource_Utilization
 {
@@ -287,10 +293,27 @@ void *TaskThread(void *task);
 int main()
 {
     srand(time(NULL));
+
+    if(sem_init(&Bricks, 0, 3) == -1){
+        perror("sem_init");
+        exit(1);
+    }
+    if (sem_init(&Cement, 0, 3) == -1)
+    {
+        perror("sem_init");
+        exit(1);
+    }
+    if (sem_init(&Tools, 0, 3) == -1)
+    {
+        perror("sem_init");
+        exit(1);
+    }
+    resources.initialize();
     cout << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~" << endl;
     cout << "Starting Simulation" << endl;
     cout << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~" << endl
          << endl;
+
     InitializeWorkers();
     while (true)
     {
@@ -347,17 +370,18 @@ int main()
         for (int i = 0; i < Memory.CurrentTasks.size(); i++)
         {
             pthread_join(Memory.CurrentTasks[i], &status);
+            //cout << *((int*)status) << endl;
             if (status == 0)
             {
                 Memory.CompletedTasksForToday.push_back(Memory.IN_PROGRESS[i]);
                 cout << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~" << endl;
-                cout << Memory.IN_PROGRESS[i].name << " has been completed" << endl;
+                cout << Memory.IN_PROGRESS[i].TaskDescription << " has been completed" << endl;
                 cout << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~" << endl;
             }
-            else if (*(int *)status == 1)
+            else if (*((int *)status) == 1)
             {
                 cout << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~" << endl;
-                cout << "Task " << Memory.IN_PROGRESS[i].name << " is on hold due to lack of resources" << endl;
+                cout << "Task " << Memory.IN_PROGRESS[i].TaskDescription << " is on hold due to lack of resources" << endl;
                 cout << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~" << endl;
             }
         }
@@ -399,6 +423,14 @@ int main()
     cout << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~" << endl;
     Log.PrintLog();
 
+    sem_destroy(&Bricks);
+    sem_destroy(&Cement);
+    sem_destroy(&Tools);
+
+    pthread_mutex_destroy(&dataMutex);
+    pthread_mutex_destroy(&queueMutex);
+    pthread_mutex_destroy(&resourceMutex);
+
     pthread_exit(0);
 }
 
@@ -410,6 +442,8 @@ void ResourceReplishment()
         cout << "Resource Replishment" << endl;
         cout << "Bricks Utilized the Day Before: " << resource_utilization.Bricks << endl;
         cout << "Cement Utilized the Day Before: " << resource_utilization.Cement << endl;
+        cout <<"Current Cement: " << resources.Cement << endl;
+        cout <<"Current Bricks: " << resources.Bricks << endl;
     }
 
     if (resource_utilization.Bricks > 0)
@@ -418,10 +452,8 @@ void ResourceReplishment()
         {
             count = 1;
         }
-        for (int i = 0; i < (resource_utilization.Bricks / count); i++)
-        {
-            sem_post(&resources.Bricks);
-        }
+        resources.Bricks += resource_utilization.Bricks;
+        cout << "Bricks Replenished: " << resources.Bricks << endl;
     }
     if (resource_utilization.Cement > 0)
     {
@@ -429,10 +461,8 @@ void ResourceReplishment()
         {
             count = 1;
         }
-        for (int i = 0; i < (resource_utilization.Cement / count); i++)
-        {
-            sem_post(&resources.Cement);
-        }
+        resources.Cement += resource_utilization.Cement;
+        cout << "Cement Replenished: " << resources.Cement << endl;
     }
     resource_utilization.Bricks = 0;
     resource_utilization.Cement = 0;
@@ -440,7 +470,7 @@ void ResourceReplishment()
 
 void InitializeTasks()
 {
-    int numTasks = 4; // rand() % 11 + 5;
+    int numTasks = rand() % 11 + 5;
     cout << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~" << endl;
     cout << "Total Number of Tasks for the Day: " << numTasks << endl;
     cout << "Creating Tasks for the Day " << Log.Day << endl;
@@ -505,7 +535,7 @@ void ChangeShifts()
 
 void InitializeWorkers()
 {
-    int numWorkers = rand() % 11 + 5;
+    int numWorkers = rand() % 11 + 10;
     cout << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~" << endl;
     cout << "Total Number of Workers: " << numWorkers << endl;
 
@@ -816,129 +846,115 @@ void *TaskThread(void *task)
     {
         // check if resources are available:
         pthread_mutex_lock(&resourceMutex);
-        // cout << "Child Process:" << pthread_self() << endl;
+        cout << "Child Process:" << pthread_self() << endl;
         bool resourceError = false;
         bool check = false;
         bool check2 = false;
-        if (taskPtr->RequiredResources[0] > 0)
+        cout << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~" << endl;
+        cout << "Checking Resources for " << taskPtr->TaskDescription << endl;
+        cout << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~" << endl;
+        if (taskPtr->RequiredResources[0] == 1)
         {
             check = true;
+            cout << "Bricks: " << resources.Bricks << endl;
             int count = taskPtr->AssignedWorker->SkillLevel > 2 ? 1 : (taskPtr->AssignedWorker->SkillLevel > 1 ? 2 : 3);
             int i;
-            for (i = 0; i < count; i++)
-            {
-                if (sem_trywait(&resources.Bricks) == -1)
-                {
-                    resourceError = true;
-                    break;
-                }
+            if(resources.Bricks-count < 0){
+                resourceError = true;
+                cout << "Bricks Error" << endl;
             }
-            if (resourceError == true)
-            {
-                for (int j = 0; j < i; j++)
-                {
-                    sem_post(&resources.Bricks);
-                }
+            else{
+                resources.Bricks = resources.Bricks - count;
+                cout << "Bricks Rem: " << resources.Bricks << endl;
             }
         }
-        if (taskPtr->RequiredResources[1] > 0 && resourceError == false)
+        if (taskPtr->RequiredResources[1] == 1 && resourceError == false)
         {
             check2 = true;
+            cout << "Cement: " << resources.Cement << endl;
             int count = taskPtr->AssignedWorker->SkillLevel > 2 ? 1 : (taskPtr->AssignedWorker->SkillLevel > 1 ? 2 : 3);
             int i;
-            for (i = 0; i < count; i++)
+            if (resources.Cement - count < 0)
             {
-                if (sem_trywait(&resources.Cement) == -1)
-                {
-                    resourceError = true;
-                    break;
-                }
+                resourceError = true;
+                cout << "Cement Error" << endl;
+            }
+            else
+            {
+                resources.Cement = resources.Cement - count;
+                cout << "Cement Rem: " << resources.Cement << endl;
             }
             if (resourceError == true)
             {
-                for (int j = 0; j < i; j++)
-                {
-                    sem_post(&resources.Cement);
-                }
                 if (check == true)
                 {
-                    for (int i = 0; i < count; i++)
-                    {
-                        sem_post(&resources.Bricks);
-                    }
+                    resources.Bricks += count; 
                     check = false;
                 }
             }
         }
-        if (taskPtr->RequiredResources[2] > 0 && resourceError == false)
+        if (taskPtr->RequiredResources[2] == 1 && resourceError == false)
         {
+            cout << "Tools: " << resources.Tools << endl;
             int count = taskPtr->AssignedWorker->SkillLevel > 2 ? 1 : (taskPtr->AssignedWorker->SkillLevel > 1 ? 2 : 3);
             int i;
-            for (i = 0; i < count; i++)
+            if (resources.Tools - count < 0)
             {
-                if (sem_trywait(&resources.Tools) == -1)
-                {
-                    resourceError = true;
-                    break;
-                }
+                resourceError = true;
+                cout << "Tools Error" << endl;
+            }
+            else
+            {
+                resources.Tools = resources.Tools - count;
+                cout << "Tools Rem: " << resources.Tools << endl;
             }
             if (resourceError == true)
             {
-                for (int j = 0; j < i; j++)
-                {
-                    sem_post(&resources.Tools);
-                }
                 if (check == true)
                 {
-                    for (int i = 0; i < count; i++)
-                    {
-                        sem_post(&resources.Bricks);
-                    }
+                    resources.Bricks += count;
                     check = false;
                 }
                 if (check2 == true)
                 {
-                    for (int i = 0; i < count; i++)
-                    {
-                        sem_post(&resources.Cement);
-                    }
+                    resources.Cement += count;
                     check2 = false;
                 }
             }
         }
-        close(pipes[0]);
-        // cout << "Child Sent: " << resourceError << endl;
-        pthread_mutex_unlock(&resourceMutex);
+        cout << "Child Sent: " << resourceError << endl;
+        // close(pipes[0]);
         write(pipes[1], &resourceError, sizeof(resourceError));
-        pthread_exit(0);
+        pthread_mutex_unlock(&resourceMutex);
+        exit(0);
     }
-    else
+    else if (pid > 0)
     {
         // Parent process
-        wait(NULL);
+        // wait(NULL);
         // cout << "Parent Process:" << pthread_self() << endl;
         bool resourceError;
-        close(pipes[1]);
+        // close(pipes[1]);
         read(pipes[0], &resourceError, sizeof(resourceError));
-        // cout << "Parent recieved: " << resourceError << endl;
-        if (resourceError == true)
+        cout << "Parent recieved: " << resourceError << endl;
+        if (resourceError == 1)
         {
             pthread_mutex_lock(&dataMutex);
             cout << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~" << endl;
-            cout << "Task " << taskPtr->name << " is on hold due to lack of resources" << endl;
-            cout << "Task " << taskPtr->name << " is being put on hold" << endl;
-            cout << "Task " << taskPtr->name << " is being put back in the queue" << endl;
+            cout << taskPtr->TaskDescription << " is on hold due to lack of resources" << endl;
+            cout << taskPtr->TaskDescription << " is being put on hold" << endl;
+            cout << taskPtr->TaskDescription << " is being put back in the queue" << endl;
             cout << "Worker " << taskPtr->AssignedWorker->id << " is being put back in the queue" << endl;
             cout << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~" << endl;
-            int index = -1;
-            for (int i = 0; i < Memory.IN_PROGRESS.size(); i++)
-            {
-                if (Memory.IN_PROGRESS[i].name == taskPtr->name)
-                {
-                    index = i;
-                    break;
-                }
-            }
+            // int index = -1;
+            // for (int i = 0; i < Memory.IN_PROGRESS.size(); i++)
+            // {
+            //     if (Memory.IN_PROGRESS[i].name == taskPtr->name)
+            //     {
+            //         index = i;
+            //         break;
+            //     }
+            // }
             // Memory.AvailableWorkers.push(*taskPtr->AssignedWorker);
             // int index2 = -1;
             // for (int i = 0; i < Memory.OccupiedWorkers.size(); i++)
@@ -981,8 +997,8 @@ void *TaskThread(void *task)
             pthread_mutex_lock(&dataMutex);
             int count = taskPtr->AssignedWorker->SkillLevel > 2 ? 1 : (taskPtr->AssignedWorker->SkillLevel > 1 ? 2 : 3);
             cout << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~" << endl;
-            cout << taskPtr->name << " is being worked on by Worker " << taskPtr->AssignedWorker->id << endl;
-            cout << taskPtr->name << " is using the following resources: " << endl;
+            cout << taskPtr->TaskDescription << " is being worked on by Worker " << taskPtr->AssignedWorker->id << endl;
+            cout << taskPtr->TaskDescription << " is using the following resources: " << endl;
             // taskPtr->DisplayTask();
             if (taskPtr->RequiredResources[0])
             {
@@ -1000,10 +1016,7 @@ void *TaskThread(void *task)
             {
                 resource_utilization.History_Tools += count;
                 cout << "Total Tools Used By This Task: " << count * 5 << endl;
-                for (int i = 0; i < count; i++)
-                {
-                    sem_post(&resources.Tools);
-                }
+                resources.Tools += count;
                 cout << "Task Has been Completed" << endl;
                 cout << "Tools are now available" << endl;
             }

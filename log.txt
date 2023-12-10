@@ -1,104 +1,86 @@
 Day 1
+Weather: Sunny
+Completed Tasks: 
+Task 5
+Task 6
+Task 8
+Task 1
+Task 3
+Workers on Shift: 
+Worker 9
+Worker 7
+Worker 1
+Worker 5
+Worker 3
+
+Day 2
 Weather: Rainy
 Completed Tasks: 
 Task 0
 Task 1
-Task 3
 Task 2
-Workers on Shift: 
-Worker 7
-Worker 9
-Worker 13
-Worker 1
-Worker 3
-Worker 11
-Worker 5
-
-Day 2
-Weather: Sunny
-Completed Tasks: 
-Task 1
 Task 3
+Task 4
+Task 6
 Workers on Shift: 
-Worker 6
-Worker 10
-Worker 12
+Worker 8
 Worker 2
 Worker 0
-Worker 8
+Worker 6
 Worker 4
+Worker 10
 
 Day 3
 Weather: Rainy
 Completed Tasks: 
-Task 1
-Task 2
+Task 10
 Task 0
 Task 2
-Task 0
+Task 4
+Task 5
 Workers on Shift: 
+Worker 5
 Worker 9
 Worker 7
-Worker 5
-Worker 3
 Worker 1
-Worker 11
-Worker 13
+Worker 3
 
 Day 4
-Weather: Sunny
+Weather: Rainy
 Completed Tasks: 
-Task 2
-Task 3
-Task 1
-Task 0
+Task 11
+Task 12
+Task 13
+Task 8
 Workers on Shift: 
+Worker 8
 Worker 10
+Worker 2
 Worker 6
-Worker 12
 Worker 4
 Worker 0
-Worker 8
-Worker 2
 
 Day 5
-Weather: Natural Disaster
-Completed Tasks: 
-Task 3
-Task 0
-Task 1
-Workers on Shift: 
-Worker 7
-Worker 5
-Worker 11
-Worker 13
-Worker 3
-Worker 1
-Worker 9
-
-Day 6
 Weather: Rainy
 Completed Tasks: 
-Task 2
+Task 7
+Task 7
 Workers on Shift: 
+Worker 7
+Worker 1
+Worker 9
+Worker 3
+Worker 5
+
+Day 6
+Weather: Natural Disaster
+Completed Tasks: 
+Task 9
+Workers on Shift: 
+Worker 8
 Worker 10
 Worker 6
-Worker 12
 Worker 4
 Worker 0
 Worker 2
-Worker 8
-
-Day 7
-Weather: Rainy
-Completed Tasks: 
-Task 3
-Workers on Shift: 
-Worker 7
-Worker 5
-Worker 11
-Worker 13
-Worker 3
-Worker 9
-Worker 1
 
