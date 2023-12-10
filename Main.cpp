@@ -10,7 +10,7 @@
 #include <sys/wait.h>
 #include <time.h>
 
-#define MAX_DAY 2 // Have to change this
+#define MAX_DAY 1 // Have to change this
 
 using namespace std;
 
@@ -251,10 +251,6 @@ struct Resources
     }
 };
 
-sem_t Bricks; // One Unit means 50 bricks
-sem_t Cement; // One Unit means 50 bags of cement
-sem_t Tools;
-
 Resources resources;
 
 struct Resource_Utilization
@@ -286,29 +282,16 @@ int CheckWeather();
 void ChangeShifts();
 void *TaskThread(void *task);
 
+void *TaskThread2(void *task);
+
 // void CheckFatigue();
 // void WorkerLRU();
 // void StimulateBreak();
 
 int main()
 {
-    srand(time(NULL));
-
-    if(sem_init(&Bricks, 0, 3) == -1){
-        perror("sem_init");
-        exit(1);
-    }
-    if (sem_init(&Cement, 0, 3) == -1)
-    {
-        perror("sem_init");
-        exit(1);
-    }
-    if (sem_init(&Tools, 0, 3) == -1)
-    {
-        perror("sem_init");
-        exit(1);
-    }
     resources.initialize();
+    srand(time(NULL));
     cout << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~" << endl;
     cout << "Starting Simulation" << endl;
     cout << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~" << endl
@@ -357,28 +340,28 @@ int main()
             pthread_t thread;
             Memory.CurrentTasks.push_back(thread);
             Task *task = new Task(Memory.IN_PROGRESS[*j]);
-            pthread_create(&Memory.CurrentTasks[*j], NULL, TaskThread, (void *)task);
+            pthread_create(&Memory.CurrentTasks[*j], NULL, TaskThread2, (void *)task);
             usleep(1000000);
         }
         usleep(1000000);
 
         // Check if all tasks are completed
-        void *status;
+        int *status;
         cout << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~" << endl;
         cout << "Day " << Log.Day << " has ended" << endl;
         cout << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~" << endl;
         for (int i = 0; i < Memory.CurrentTasks.size(); i++)
         {
-            pthread_join(Memory.CurrentTasks[i], &status);
-            //cout << *((int*)status) << endl;
-            if (status == 0)
+            pthread_join(Memory.CurrentTasks[i], (void **)&status);
+            cout << *((int*)status) << endl;
+            if (*(status) == 0)
             {
                 Memory.CompletedTasksForToday.push_back(Memory.IN_PROGRESS[i]);
                 cout << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~" << endl;
                 cout << Memory.IN_PROGRESS[i].TaskDescription << " has been completed" << endl;
                 cout << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~" << endl;
             }
-            else if (*((int *)status) == 1)
+            else if (*(status) == 1)
             {
                 cout << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~" << endl;
                 cout << "Task " << Memory.IN_PROGRESS[i].TaskDescription << " is on hold due to lack of resources" << endl;
@@ -423,10 +406,6 @@ int main()
     cout << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~" << endl;
     Log.PrintLog();
 
-    sem_destroy(&Bricks);
-    sem_destroy(&Cement);
-    sem_destroy(&Tools);
-
     pthread_mutex_destroy(&dataMutex);
     pthread_mutex_destroy(&queueMutex);
     pthread_mutex_destroy(&resourceMutex);
@@ -442,8 +421,8 @@ void ResourceReplishment()
         cout << "Resource Replishment" << endl;
         cout << "Bricks Utilized the Day Before: " << resource_utilization.Bricks << endl;
         cout << "Cement Utilized the Day Before: " << resource_utilization.Cement << endl;
-        cout <<"Current Cement: " << resources.Cement << endl;
-        cout <<"Current Bricks: " << resources.Bricks << endl;
+        cout << "Current Cement: " << resources.Cement << endl;
+        cout << "Current Bricks: " << resources.Bricks << endl;
     }
 
     if (resource_utilization.Bricks > 0)
@@ -452,8 +431,7 @@ void ResourceReplishment()
         {
             count = 1;
         }
-        resources.Bricks += resource_utilization.Bricks;
-        cout << "Bricks Replenished: " << resources.Bricks << endl;
+        resources.Bricks += resource_utilization.Bricks / count;
     }
     if (resource_utilization.Cement > 0)
     {
@@ -461,8 +439,7 @@ void ResourceReplishment()
         {
             count = 1;
         }
-        resources.Cement += resource_utilization.Cement;
-        cout << "Cement Replenished: " << resources.Cement << endl;
+        resources.Cement += resource_utilization.Cement / count;
     }
     resource_utilization.Bricks = 0;
     resource_utilization.Cement = 0;
@@ -859,11 +836,13 @@ void *TaskThread(void *task)
             cout << "Bricks: " << resources.Bricks << endl;
             int count = taskPtr->AssignedWorker->SkillLevel > 2 ? 1 : (taskPtr->AssignedWorker->SkillLevel > 1 ? 2 : 3);
             int i;
-            if(resources.Bricks-count < 0){
+            if (resources.Bricks - count < 0)
+            {
                 resourceError = true;
                 cout << "Bricks Error" << endl;
             }
-            else{
+            else
+            {
                 resources.Bricks = resources.Bricks - count;
                 cout << "Bricks Rem: " << resources.Bricks << endl;
             }
@@ -888,7 +867,7 @@ void *TaskThread(void *task)
             {
                 if (check == true)
                 {
-                    resources.Bricks += count; 
+                    resources.Bricks += count;
                     check = false;
                 }
             }
@@ -1033,3 +1012,177 @@ void *TaskThread(void *task)
     pthread_mutex_unlock(&dataMutex);
     pthread_exit(0);
 }
+
+void *TaskThread2(void *task)
+{
+    Task *taskPtr = (Task *)task;
+    int* exit_status;
+    pthread_mutex_lock(&resourceMutex);
+    bool resourceError = false;
+    bool check = false;
+    bool check2 = false;
+    cout << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~" << endl;
+    cout << "Checking Resources for " << taskPtr->TaskDescription << endl;
+    cout << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~" << endl;
+    if (taskPtr->RequiredResources[0] == 1)
+    {
+        check = true;
+        int count = taskPtr->AssignedWorker->SkillLevel > 2 ? 1 : (taskPtr->AssignedWorker->SkillLevel > 1 ? 2 : 3);
+        int i;
+        if (resources.Bricks - count < 0)
+        {
+            resourceError = true;
+        }
+        else
+        {
+            resources.Bricks = resources.Bricks - count;
+        }
+    }
+    if (taskPtr->RequiredResources[1] == 1 && resourceError == false)
+    {
+        check2 = true;
+        int count = taskPtr->AssignedWorker->SkillLevel > 2 ? 1 : (taskPtr->AssignedWorker->SkillLevel > 1 ? 2 : 3);
+        int i;
+        if (resources.Cement - count < 0)
+        {
+            resourceError = true;
+        }
+        else
+        {
+            resources.Cement = resources.Cement - count;
+        }
+        if (resourceError == true)
+        {
+            if (check == true)
+            {
+                resources.Bricks += count;
+                check = false;
+            }
+        }
+    }
+    if (taskPtr->RequiredResources[2] == 1 && resourceError == false)
+    {
+        int count = taskPtr->AssignedWorker->SkillLevel > 2 ? 1 : (taskPtr->AssignedWorker->SkillLevel > 1 ? 2 : 3);
+        int i;
+        if (resources.Tools - count < 0)
+        {
+            resourceError = true;
+        }
+        else
+        {
+            resources.Tools = resources.Tools - count;
+        }
+        if (resourceError == true)
+        {
+            if (check == true)
+            {
+                resources.Bricks += count;
+                check = false;
+            }
+            if (check2 == true)
+            {
+                resources.Cement += count;
+                check2 = false;
+            }
+        }
+    }
+    pthread_mutex_unlock(&resourceMutex);
+
+    if (resourceError == 1)
+    {
+        pthread_mutex_lock(&dataMutex);
+        exit_status = new int(1);
+        cout << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~" << endl;
+        cout << taskPtr->TaskDescription << " is on hold due to lack of resources" << endl;
+        cout << taskPtr->TaskDescription << " is being put on hold" << endl;
+        cout << taskPtr->TaskDescription << " is being put back in the queue" << endl;
+        cout << "Worker " << taskPtr->AssignedWorker->id << " is being put back in the queue" << endl;
+        cout << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~" << endl;
+        // int index = -1;
+        // for (int i = 0; i < Memory.IN_PROGRESS.size(); i++)
+        // {
+        //     if (Memory.IN_PROGRESS[i].name == taskPtr->name)
+        //     {
+        //         index = i;
+        //         break;
+        //     }
+        // }
+        // Memory.AvailableWorkers.push(*taskPtr->AssignedWorker);
+        // int index2 = -1;
+        // for (int i = 0; i < Memory.OccupiedWorkers.size(); i++)
+        // {
+        //     if (Memory.OccupiedWorkers[i].id == taskPtr->AssignedWorker->id)
+        //     {
+        //         index2 = i;
+        //         break;
+        //     }
+        // }
+        // Memory.OccupiedWorkers.erase(Memory.OccupiedWorkers.begin() + index2);
+        // taskPtr->AssignedWorker = nullptr;
+        if (taskPtr->priority == 1)
+        {
+            Memory.highPriorityQueue.push(*taskPtr);
+        }
+        else if (taskPtr->priority == 2)
+        {
+            Memory.mediumPriorityQueue.push(*taskPtr);
+        }
+        else
+        {
+            Memory.lowPriorityQueue.push(*taskPtr);
+        }
+        // TaskState.State.push(*taskPtr);
+        // Memory.IN_PROGRESS.erase(Memory.IN_PROGRESS.begin() + index);
+        pthread_mutex_unlock(&dataMutex);
+        pthread_exit(exit_status);
+    }
+    else
+    {
+        // if (taskPtr->priority == 1)
+        // {
+        //     int count = rand() % 30 + 1;
+        //     if (count % 3 == 0)
+        //     {
+        //         taskPtr->AssignedWorker->FatigueCounter++;
+        //     }
+        // }
+        pthread_mutex_lock(&dataMutex);
+        exit_status = new int(0);
+        int count = taskPtr->AssignedWorker->SkillLevel > 2 ? 1 : (taskPtr->AssignedWorker->SkillLevel > 1 ? 2 : 3);
+        cout << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~" << endl;
+        cout << taskPtr->TaskDescription << " is being worked on by Worker " << taskPtr->AssignedWorker->id << endl;
+        cout << taskPtr->TaskDescription << " is using the following resources: " << endl;
+        // taskPtr->DisplayTask();
+        if (taskPtr->RequiredResources[0])
+        {
+            resource_utilization.Bricks += count;
+            resource_utilization.History_Bricks += count;
+            cout << "Total Bricks Used By This Task: " << count * 50 << endl;
+        }
+        if (taskPtr->RequiredResources[1])
+        {
+            resource_utilization.Cement += count;
+            resource_utilization.History_Cement += count;
+            cout << "Total Bags of Cement Used By This Task: " << count * 50 << endl;
+        }
+        if (taskPtr->RequiredResources[2])
+        {
+            resource_utilization.History_Tools += count;
+            cout << "Total Tools Used By This Task: " << count * 5 << endl;
+            resources.Tools += count;
+            cout << "Task Has been Completed" << endl;
+            cout << "Tools are now available" << endl;
+        }
+        else
+        {
+            cout << "Task Has been Completed" << endl;
+        }
+        cout << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~" << endl;
+        // usleep(100000);
+        pthread_mutex_unlock(&dataMutex);
+        pthread_exit(exit_status);
+    }
+    pthread_mutex_unlock(&dataMutex);
+    pthread_exit(exit_status);
+}
+
