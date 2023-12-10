@@ -6,10 +6,67 @@
 #include <vector>
 #include <algorithm>
 #include <stack>
+#include <fstream>
+#include <sys/wait.h>
+#include <time.h>
 
-#define MAX_DAY 30
+#define MAX_DAY 5 // Have to change this
 
 using namespace std;
+
+enum weather
+{
+    SUNNY,
+    NATURAL_DISASTER,
+    RAINY
+};
+
+enum Skillset
+{
+    ELECTRICIAN,
+    PLUMBER,
+    CARPENTER,
+    MASON,
+    LABORER,
+    ENGINEER
+};
+
+enum WorkType
+{
+    OUTDOOR,
+    INDOOR,
+    OFFSITE
+};
+
+struct Task_Type
+{
+    int priority; // 1 = high, 2 = medium, 3 = low
+    string description;
+    int skillset;
+    vector<int> RequiredResources;
+    int WorkType;
+};
+
+vector<string> Skills = {"Electrician", "Plumber", "Carpenter", "Mason", "Laborer", "Engineer"};
+
+vector<Task_Type> task_types = {
+    {3, "Lighting Installation", ELECTRICIAN, {0, 0, 1}, INDOOR}, // Brick Cement Tool
+    {3, "Plumbing Installation", PLUMBER, {0, 0, 1}, INDOOR},
+    {3, "Wiring for New Construction", ELECTRICIAN, {0, 0, 1}, INDOOR},
+    {3, "Construction Project Management", ENGINEER, {0, 0, 0}, OFFSITE},
+    {3, "Project Planning and Design", ENGINEER, {0, 0, 0}, OFFSITE},
+
+    {2, "Cement Mixing", LABORER, {0, 1, 0}, OUTDOOR},
+    {2, "Brick Laying", MASON, {1, 1, 0}, OUTDOOR},
+    {2, "Stone Wall Construction", MASON, {1, 1, 0}, OUTDOOR},
+    {2, "Gas Line Installation", PLUMBER, {0, 0, 1}, INDOOR},
+    {2, "Door and Window Installation", CARPENTER, {0, 1, 0}, INDOOR},
+
+    {1, "Pipe Installation and Repair", PLUMBER, {0, 1, 1}, INDOOR},
+    {1, "Pillar Construction", MASON, {1, 1, 0}, OUTDOOR},
+    {1, "Staircase Installation", CARPENTER, {1, 1, 0}, INDOOR},
+    {1, "Troubleshooting Electrical Issues", ELECTRICIAN, {0, 0, 1}, INDOOR},
+    {1, "Concrete Repair", MASON, {0, 1, 0}, OUTDOOR}};
 
 struct Worker
 {
@@ -19,6 +76,19 @@ struct Worker
     bool onBreak; // Flag indicating if the worker is on break
     int FatigueCounter;
     bool shift; // Flag indicating if the worker has even shift or odd shift
+
+    Worker()
+    {
+    }
+    Worker(const Worker &worker)
+    {
+        this->id = worker.id;
+        this->skills = worker.skills;
+        this->SkillLevel = worker.SkillLevel;
+        this->onBreak = worker.onBreak;
+        this->FatigueCounter = worker.FatigueCounter;
+        this->shift = worker.shift;
+    }
 };
 
 struct Task
@@ -29,6 +99,66 @@ struct Task
     int skillset;
     vector<int> RequiredResources;
     Worker *AssignedWorker;
+
+    Task()
+    {
+    }
+
+    Task(const Task &task)
+    {
+        this->name = task.name;
+        this->priority = task.priority;
+        this->TaskDescription = task.TaskDescription;
+        this->skillset = task.skillset;
+        this->RequiredResources = task.RequiredResources;
+        if (task.AssignedWorker != nullptr)
+        {
+            this->AssignedWorker = new Worker(*task.AssignedWorker);
+        }
+        else
+        {
+            this->AssignedWorker = nullptr;
+        }
+    }
+
+    void DisplayTask()
+    {
+        cout << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~" << endl;
+        cout << "Task Name: " << name << endl;
+        cout << "Task Priority: ";
+        if (priority == 1)
+        {
+            cout << "High" << endl;
+        }
+        else if (priority == 2)
+        {
+            cout << "Medium" << endl;
+        }
+        else
+        {
+            cout << "Low" << endl;
+        }
+        cout << "Task Description: " << TaskDescription << endl;
+        cout << "Task Skillset: " << Skills[skillset] << endl;
+        if (AssignedWorker != nullptr)
+        {
+            cout << "Assigned Worker: " << AssignedWorker->id << endl;
+        }
+        cout << "Required Resources: " << endl;
+        if (RequiredResources[0] > 0)
+        {
+            cout << "Bricks: " << RequiredResources[0] * 50 << endl;
+        }
+        if (RequiredResources[1] > 0)
+        {
+            cout << "Cement: " << RequiredResources[1] * 50 << endl;
+        }
+        if (RequiredResources[2] > 0)
+        {
+            cout << "Tools: " << RequiredResources[2] * 5 << endl;
+        }
+        cout << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~" << endl;
+    }
 };
 
 struct MemoryManagement
@@ -62,6 +192,48 @@ struct Log
     int Day = 1;
     int rainCounter = 0;
     int disasterCounter = 0;
+    ofstream file;
+
+    void PrintLog()
+    {
+        file.open("log.txt");
+
+        for (int i = 0; i < Day_Logs.size(); i++)
+        {
+            file << "Day " << Day_Logs[i].Day << "\n";
+            file << "Weather: ";
+            if (Day_Logs[i].weather == SUNNY)
+            {
+                file << "Sunny"
+                     << "\n";
+            }
+            else if (Day_Logs[i].weather == RAINY)
+            {
+                file << "Rainy"
+                     << "\n";
+            }
+            else if (Day_Logs[i].weather == NATURAL_DISASTER)
+            {
+                file << "Natural Disaster"
+                     << "\n";
+            }
+            file << "Completed Tasks: "
+                 << "\n";
+            for (int j = 0; j < Day_Logs[i].CompletedTasks.size(); j++)
+            {
+                file << Day_Logs[i].CompletedTasks[j].name << "\n";
+            }
+            file << "Workers on Shift: "
+                 << "\n";
+            for (int j = 0; j < Day_Logs[i].WorkerOnShift.size(); j++)
+            {
+                file << "Worker " << Day_Logs[i].WorkerOnShift[j].id << "\n";
+            }
+            file << "\n";
+        }
+
+        file.close();
+    }
 
 } Log;
 
@@ -88,54 +260,10 @@ struct Resource_Utilization
     int History_Tools = 0;
 } resource_utilization;
 
-enum weather
-{
-    SUNNY,
-    NATURAL_DISASTER,
-    RAINY
-};
-
-enum Skillset
-{
-    ELECTRICIAN,
-    PLUMBER,
-    CARPENTER,
-    MASON,
-    LABORER,
-    ENGINEER
-};
-
-struct Task_Type
-{
-    int priority; // 1 = high, 2 = medium, 3 = low
-    string description;
-    int skillset;
-    vector<int> RequiredResources;
-};
-
 struct StateStack // State of the tasks that were interrupted
 {
     stack<Task> State;
 } TaskState;
-
-vector<Task_Type> task_types = {
-    {3, "Lighting Installation", ELECTRICIAN, {0, 0, 1}}, // Brick Cement Tool
-    {3, "Plumbing Installation", PLUMBER, {0, 0, 1}},
-    {3, "Wiring for New Construction", ELECTRICIAN, {0, 0, 1}},
-    {3, "Construction Project Management", ENGINEER, {0, 0, 0}},
-    {3, "Project Planning and Design", ENGINEER, {0, 0, 0}},
-
-    {2, "Cement Mixing", LABORER, {0, 1, 0}},
-    {2, "Brick Laying", MASON, {1, 1, 0}},
-    {2, "Stone Wall Construction", MASON, {1, 1, 0}},
-    {2, "Gas Line Installation", PLUMBER, {0, 0, 1}},
-    {2, "Door and Window Installation", CARPENTER, {0, 1, 0}},
-
-    {1, "Pipe Installation and Repair", PLUMBER, {0, 1, 1}},
-    {1, "Pillar Construction", MASON, {1, 1, 0}},
-    {1, "Staircase Installation", CARPENTER, {1, 1, 0}},
-    {1, "Troubleshooting Electrical Issues", ELECTRICIAN, {0, 0, 1}},
-    {1, "Concrete Repair", MASON, {0, 1, 0}}};
 
 pthread_mutex_t dataMutex = PTHREAD_MUTEX_INITIALIZER;
 
@@ -152,87 +280,171 @@ int CheckWeather();
 void ChangeShifts();
 void *TaskThread(void *task);
 
+// void CheckFatigue();
+// void WorkerLRU();
+// void StimulateBreak();
+
 int main()
 {
-
+    srand(time(NULL));
+    cout << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~" << endl;
+    cout << "Starting Simulation" << endl;
+    cout << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~" << endl
+         << endl;
     InitializeWorkers();
-
     while (true)
     {
         if (Log.Day > MAX_DAY && Memory.highPriorityQueue.empty() && Memory.mediumPriorityQueue.empty() && Memory.lowPriorityQueue.empty())
         {
             break;
         }
+        cout << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~" << endl;
+        cout << "Day " << Log.Day << " has started" << endl;
+        cout << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~" << endl;
         ChangeShifts();
         Memory.currentWeather = CheckWeather();
+        cout << "Weather: ";
+        if (Memory.currentWeather == SUNNY)
+        {
+            cout << "Sunny" << endl;
+        }
+        else if (Memory.currentWeather == RAINY)
+        {
+            cout << "Rainy" << endl;
+        }
+        else if (Memory.currentWeather == NATURAL_DISASTER)
+        {
+            cout << "Natural Disaster" << endl;
+        }
         ResourceReplishment();
-        InitializeTasks();
-
+        if (Log.Day <= MAX_DAY)
+        {
+            InitializeTasks();
+        }
+        // Worker Change based on fatigue, LRU, and break
         // DynamicTaskAdjustment();
         AssignTasks();
-        usleep(100000);
+        cout << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~" << endl;
+        cout << "Tasks for the Day" << endl;
+        cout << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~" << endl;
+        int i;
+        for (int i = 0; i < Memory.IN_PROGRESS.size(); i++)
+        {
+            int *j = new int(i);
+            pthread_t thread;
+            Memory.CurrentTasks.push_back(thread);
+            Task *task = new Task(Memory.IN_PROGRESS[*j]);
+            pthread_create(&Memory.CurrentTasks[*j], NULL, TaskThread, (void *)task);
+            usleep(1000000);
+        }
+        usleep(1000000);
 
         // Check if all tasks are completed
         void *status;
+        cout << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~" << endl;
+        cout << "Day " << Log.Day << " has ended" << endl;
+        cout << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~" << endl;
         for (int i = 0; i < Memory.CurrentTasks.size(); i++)
         {
             pthread_join(Memory.CurrentTasks[i], &status);
             if (status == 0)
             {
                 Memory.CompletedTasksForToday.push_back(Memory.IN_PROGRESS[i]);
-                cout << "Task " << Memory.IN_PROGRESS[i].name << " has been completed" << endl;
-                cout << "Worker " << Memory.IN_PROGRESS[i].AssignedWorker->id << " is being put back in the queue" << endl;
-                Memory.AvailableWorkers.push(*Memory.IN_PROGRESS[i].AssignedWorker);
-                Memory.IN_PROGRESS[i].AssignedWorker = nullptr;
+                cout << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~" << endl;
+                cout << Memory.IN_PROGRESS[i].name << " has been completed" << endl;
+                cout << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~" << endl;
             }
             else if (*(int *)status == 1)
             {
+                cout << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~" << endl;
                 cout << "Task " << Memory.IN_PROGRESS[i].name << " is on hold due to lack of resources" << endl;
+                cout << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~" << endl;
             }
-            // else if (*(int*)status == 2)
-            // {
-
-            // }
-            // else if (*(int*)status == 10)
-            // {
-
-            // }
-            // else if (*(int*)status == 11)
-            // {
-
-            // }
         }
+
+        for (int i = 0; i < Memory.IN_PROGRESS.size(); i++)
+        {
+            Memory.IN_PROGRESS[i].AssignedWorker = nullptr;
+        }
+        for (int i = 0; i < Memory.OccupiedWorkers.size(); i++)
+        {
+            Memory.AvailableWorkers.push(Memory.OccupiedWorkers[i]);
+        }
+        // Fill log:
+        Day_Log day_log;
+        day_log.Day = Log.Day;
+        day_log.weather = Memory.currentWeather;
+        for (int i = 0; i < Memory.CompletedTasksForToday.size(); i++)
+        {
+            day_log.CompletedTasks.push_back(Memory.CompletedTasksForToday[i]);
+        }
+        while (!Memory.AvailableWorkers.empty())
+        {
+            day_log.WorkerOnShift.push_back(Memory.AvailableWorkers.front());
+            Memory.NotONShiftWorkers.push_back(Memory.AvailableWorkers.front());
+            Memory.AvailableWorkers.pop();
+        }
+
+        Log.Day_Logs.push_back(day_log);
         Memory.IN_PROGRESS.clear();
         Memory.CurrentTasks.clear();
-
-        // Fill log:
-
+        Memory.CompletedTasksForToday.clear();
+        Memory.OccupiedWorkers.clear();
         Log.Day++;
     }
+    cout << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~" << endl;
+    cout << "Simulation has ended" << endl;
+    cout << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~" << endl;
+    cout << "Writing Log" << endl;
+    cout << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~" << endl;
+    Log.PrintLog();
+
+    pthread_exit(0);
 }
 
 void ResourceReplishment()
 {
+    int count = rand() % 2 + 1;
+    if (Log.Day > 1)
+    {
+        cout << "Resource Replishment" << endl;
+        cout << "Bricks Utilized the Day Before: " << resource_utilization.Bricks << endl;
+        cout << "Cement Utilized the Day Before: " << resource_utilization.Cement << endl;
+    }
+
     if (resource_utilization.Bricks > 0)
     {
-        for (int i = 0; i < resource_utilization.Bricks; i++)
+        if (resource_utilization.History_Bricks / 2 > Log.Day && Log.Day > 10)
+        {
+            count = 1;
+        }
+        for (int i = 0; i < (resource_utilization.Bricks / count); i++)
         {
             sem_post(&resources.Bricks);
         }
     }
     if (resource_utilization.Cement > 0)
     {
-        for (int i = 0; i < resource_utilization.Cement; i++)
+        if (resource_utilization.History_Cement / 2 > Log.Day && Log.Day > 10)
+        {
+            count = 1;
+        }
+        for (int i = 0; i < (resource_utilization.Cement / count); i++)
         {
             sem_post(&resources.Cement);
         }
     }
+    resource_utilization.Bricks = 0;
+    resource_utilization.Cement = 0;
 }
 
 void InitializeTasks()
 {
-    int numTasks = rand() % 11 + 5;
-
+    int numTasks = 4; // rand() % 11 + 5;
+    cout << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~" << endl;
+    cout << "Total Number of Tasks for the Day: " << numTasks << endl;
+    cout << "Creating Tasks for the Day " << Log.Day << endl;
+    cout << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~" << endl;
     for (int i = 0; i < numTasks; i++)
     {
         int TaskTypeIndex = rand() % task_types.size();
@@ -252,6 +464,7 @@ void InitializeTasks()
             Memory.lowPriorityQueue.push(task);
         pthread_mutex_unlock(&queueMutex);
     }
+    cout << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~" << endl;
 }
 
 void ChangeShifts()
@@ -266,12 +479,12 @@ void ChangeShifts()
         shift = false;
     }
     vector<Worker> tempQueue;
-    for(int i=0;i<Memory.NotONShiftWorkers.size();i++)
+    for (int i = 0; i < Memory.NotONShiftWorkers.size(); i++)
     {
         tempQueue.push_back(Memory.NotONShiftWorkers[i]);
     }
     Memory.NotONShiftWorkers.clear();
-    while(!Memory.AvailableWorkers.empty())
+    while (!Memory.AvailableWorkers.empty())
     {
         tempQueue.push_back(Memory.AvailableWorkers.front());
         Memory.AvailableWorkers.pop();
@@ -281,11 +494,11 @@ void ChangeShifts()
     {
         if (tempQueue[i].shift == shift)
         {
-            Memory.NotONShiftWorkers.push_back(tempQueue[i]);
+            Memory.AvailableWorkers.push(tempQueue[i]);
         }
         else
         {
-            Memory.AvailableWorkers.push(tempQueue[i]);
+            Memory.NotONShiftWorkers.push_back(tempQueue[i]);
         }
     }
 }
@@ -293,6 +506,9 @@ void ChangeShifts()
 void InitializeWorkers()
 {
     int numWorkers = rand() % 11 + 5;
+    cout << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~" << endl;
+    cout << "Total Number of Workers: " << numWorkers << endl;
+
     for (int i = 0; i < numWorkers; i++)
     {
         Worker worker;
@@ -327,6 +543,7 @@ void DynamicTaskAdjustment()
 
 void AssignTasks()
 {
+    cout << "Assigning Tasks" << endl;
     if (!Memory.highPriorityQueue.empty())
     {
         vector<Task> tempTasks;
@@ -349,6 +566,7 @@ void AssignTasks()
                     {
                         tempQueue.push_back(worker);
                         hasSkill = true;
+                        break;
                     }
                 }
                 if (hasSkill == false)
@@ -368,21 +586,21 @@ void AssignTasks()
                 sort(tempQueue.begin(), tempQueue.end(), [](const Worker &lhs, const Worker &rhs)
                      { return lhs.SkillLevel < rhs.SkillLevel; });
                 Worker worker = tempQueue[tempQueue.size() - 1];
-                task.AssignedWorker = &worker;
+                task.AssignedWorker = new Worker(worker);
+                // task.DisplayTask();
                 Memory.OccupiedWorkers.push_back(worker);
                 foundWorker = true;
-                for (int i = 0; i < tempQueue.size() - 1; i++)
+                for (int i = 0; i < tempQueue.size(); i++)
                 {
-                    Memory.AvailableWorkers.push(tempQueue[i]);
+                    if (tempQueue[i].id != worker.id)
+                    {
+                        Memory.AvailableWorkers.push(tempQueue[i]);
+                    }
                 }
             }
             if (foundWorker == true)
             {
                 Memory.IN_PROGRESS.push_back(task);
-                pthread_t thread;
-                Memory.CurrentTasks.push_back(thread);
-                pthread_create(&Memory.CurrentTasks[Memory.CurrentTasks.size() - 1], NULL, TaskThread, (void *)&task);
-                usleep(100000);
             }
             else
             {
@@ -419,6 +637,7 @@ void AssignTasks()
                     {
                         tempQueue.push_back(worker);
                         hasSkill = true;
+                        break;
                     }
                 }
                 if (hasSkill == false)
@@ -438,20 +657,21 @@ void AssignTasks()
                 sort(tempQueue.begin(), tempQueue.end(), [](const Worker &lhs, const Worker &rhs)
                      { return lhs.SkillLevel < rhs.SkillLevel; });
                 Worker worker = tempQueue[tempQueue.size() - 1];
-                task.AssignedWorker = &worker;
+                task.AssignedWorker = new Worker(worker);
+                // task.DisplayTask();
                 Memory.OccupiedWorkers.push_back(worker);
                 foundWorker = true;
-                for (int i = 0; i < tempQueue.size() - 1; i++)
+                for (int i = 0; i < tempQueue.size(); i++)
                 {
-                    Memory.AvailableWorkers.push(tempQueue[i]);
+                    if (tempQueue[i].id != worker.id)
+                    {
+                        Memory.AvailableWorkers.push(tempQueue[i]);
+                    }
                 }
             }
             if (foundWorker == true)
             {
                 Memory.IN_PROGRESS.push_back(task);
-                pthread_t thread;
-                Memory.CurrentTasks.push_back(thread);
-                pthread_create(&Memory.CurrentTasks[Memory.CurrentTasks.size() - 1], NULL, TaskThread, (void *)&task);
             }
             else
             {
@@ -488,6 +708,7 @@ void AssignTasks()
                     {
                         tempQueue.push_back(worker);
                         hasSkill = true;
+                        break;
                     }
                 }
                 if (hasSkill == false)
@@ -507,20 +728,21 @@ void AssignTasks()
                 sort(tempQueue.begin(), tempQueue.end(), [](const Worker &lhs, const Worker &rhs)
                      { return lhs.SkillLevel < rhs.SkillLevel; });
                 Worker worker = tempQueue[tempQueue.size() - 1];
-                task.AssignedWorker = &worker;
+                task.AssignedWorker = new Worker(worker);
+                // task.DisplayTask();
                 Memory.OccupiedWorkers.push_back(worker);
                 foundWorker = true;
-                for (int i = 0; i < tempQueue.size() - 1; i++)
+                for (int i = 0; i < tempQueue.size(); i++)
                 {
-                    Memory.AvailableWorkers.push(tempQueue[i]);
+                    if (tempQueue[i].id != worker.id)
+                    {
+                        Memory.AvailableWorkers.push(tempQueue[i]);
+                    }
                 }
             }
             if (foundWorker == true)
             {
                 Memory.IN_PROGRESS.push_back(task);
-                pthread_t thread;
-                Memory.CurrentTasks.push_back(thread);
-                pthread_create(&Memory.CurrentTasks[Memory.CurrentTasks.size() - 1], NULL, TaskThread, (void *)&task);
             }
             else
             {
@@ -571,6 +793,7 @@ int CheckWeather()
             Log.disasterCounter++;
         }
     }
+    return SUNNY;
 }
 
 void *TaskThread(void *task)
@@ -579,18 +802,21 @@ void *TaskThread(void *task)
     int pipes[2];
     if (pipe(pipes) == -1)
     {
+        perror("pipe");
         pthread_exit((void *)11);
     }
     int pid = fork();
 
     if (pid == -1)
     {
+        perror("fork");
         pthread_exit((void *)10);
     }
     else if (pid == 0)
     {
         // check if resources are available:
         pthread_mutex_lock(&resourceMutex);
+        // cout << "Child Process:" << pthread_self() << endl;
         bool resourceError = false;
         bool check = false;
         bool check2 = false;
@@ -681,22 +907,29 @@ void *TaskThread(void *task)
             }
         }
         close(pipes[0]);
+        // cout << "Child Sent: " << resourceError << endl;
         pthread_mutex_unlock(&resourceMutex);
         write(pipes[1], &resourceError, sizeof(resourceError));
+        pthread_exit(0);
     }
     else
     {
         // Parent process
+        wait(NULL);
+        // cout << "Parent Process:" << pthread_self() << endl;
         bool resourceError;
         close(pipes[1]);
         read(pipes[0], &resourceError, sizeof(resourceError));
+        // cout << "Parent recieved: " << resourceError << endl;
         if (resourceError == true)
         {
+            pthread_mutex_lock(&dataMutex);
+            cout << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~" << endl;
             cout << "Task " << taskPtr->name << " is on hold due to lack of resources" << endl;
             cout << "Task " << taskPtr->name << " is being put on hold" << endl;
             cout << "Task " << taskPtr->name << " is being put back in the queue" << endl;
             cout << "Worker " << taskPtr->AssignedWorker->id << " is being put back in the queue" << endl;
-            pthread_mutex_lock(&dataMutex);
+            cout << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~" << endl;
             int index = -1;
             for (int i = 0; i < Memory.IN_PROGRESS.size(); i++)
             {
@@ -706,18 +939,18 @@ void *TaskThread(void *task)
                     break;
                 }
             }
-            Memory.AvailableWorkers.push(*taskPtr->AssignedWorker);
-            int index2 = -1;
-            for (int i = 0; i < Memory.OccupiedWorkers.size(); i++)
-            {
-                if (Memory.OccupiedWorkers[i].id == taskPtr->AssignedWorker->id)
-                {
-                    index2 = i;
-                    break;
-                }
-            }
-            Memory.OccupiedWorkers.erase(Memory.OccupiedWorkers.begin() + index2);
-            taskPtr->AssignedWorker = nullptr;
+            // Memory.AvailableWorkers.push(*taskPtr->AssignedWorker);
+            // int index2 = -1;
+            // for (int i = 0; i < Memory.OccupiedWorkers.size(); i++)
+            // {
+            //     if (Memory.OccupiedWorkers[i].id == taskPtr->AssignedWorker->id)
+            //     {
+            //         index2 = i;
+            //         break;
+            //     }
+            // }
+            // Memory.OccupiedWorkers.erase(Memory.OccupiedWorkers.begin() + index2);
+            // taskPtr->AssignedWorker = nullptr;
             if (taskPtr->priority == 1)
             {
                 Memory.highPriorityQueue.push(*taskPtr);
@@ -731,15 +964,26 @@ void *TaskThread(void *task)
                 Memory.lowPriorityQueue.push(*taskPtr);
             }
             // TaskState.State.push(*taskPtr);
-            Memory.IN_PROGRESS.erase(Memory.IN_PROGRESS.begin() + index);
+            // Memory.IN_PROGRESS.erase(Memory.IN_PROGRESS.begin() + index);
             pthread_mutex_unlock(&dataMutex);
             pthread_exit((void *)1);
         }
         else
         {
+            // if (taskPtr->priority == 1)
+            // {
+            //     int count = rand() % 30 + 1;
+            //     if (count % 3 == 0)
+            //     {
+            //         taskPtr->AssignedWorker->FatigueCounter++;
+            //     }
+            // }
             pthread_mutex_lock(&dataMutex);
             int count = taskPtr->AssignedWorker->SkillLevel > 2 ? 1 : (taskPtr->AssignedWorker->SkillLevel > 1 ? 2 : 3);
-            cout << "Task " << taskPtr->name << " is being worked on by Worker " << taskPtr->AssignedWorker->id << endl;
+            cout << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~" << endl;
+            cout << taskPtr->name << " is being worked on by Worker " << taskPtr->AssignedWorker->id << endl;
+            cout << taskPtr->name << " is using the following resources: " << endl;
+            // taskPtr->DisplayTask();
             if (taskPtr->RequiredResources[0])
             {
                 resource_utilization.Bricks += count;
@@ -763,10 +1007,16 @@ void *TaskThread(void *task)
                 cout << "Task Has been Completed" << endl;
                 cout << "Tools are now available" << endl;
             }
-            usleep(100000);
+            else
+            {
+                cout << "Task Has been Completed" << endl;
+            }
+            cout << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~" << endl;
+            // usleep(100000);
             pthread_mutex_unlock(&dataMutex);
             pthread_exit(0);
         }
     }
+    pthread_mutex_unlock(&dataMutex);
     pthread_exit(0);
 }
